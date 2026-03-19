@@ -218,11 +218,23 @@ function fetchLocationTemperature() {
             console.log('📍 Full address from Nominatim:', JSON.stringify(addr, null, 2));
             // Pick name detail based on geolocation accuracy
             if (accuracy < 5000) {
-              // Good accuracy (<5km): show local area
-              city = addr.suburb || addr.neighbourhood || addr.village || addr.town || addr.city_district || addr.city || addr.state_district || city;
+              // Good accuracy (<5km): show road + local area + city
+              const road = addr.road || '';
+              const localArea = addr.suburb || addr.neighbourhood || addr.village || addr.city_district;
+              const cityName = addr.city || addr.town || addr.state_district || addr.county;
+              
+              const parts = [];
+              if (road) parts.push(road);
+              if (localArea && localArea !== road) parts.push(localArea);
+              if (cityName && cityName !== localArea && cityName !== road) parts.push(cityName);
+              
+              if (parts.length > 0) {
+                // Limit to 2 most specific parts + city if possible, or just first 2-3
+                city = parts.slice(0, 3).join(', ');
+              }
             } else {
               // Poor accuracy (IP-based): show broader area
-              city = addr.state_district || addr.city || addr.city_district || addr.county || addr.town || addr.state || city;
+              city = addr.city || addr.state_district || addr.county || addr.state || city;
             }
           }
         } catch (e) {
