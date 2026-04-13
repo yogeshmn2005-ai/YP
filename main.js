@@ -140,8 +140,21 @@ function setupEventListeners() {
   dom.btnSerialConnect.addEventListener('click', connectHardware);
 }
 
-// ===== Hardware Communication (WebUSB FTDI) =====
+// ===== Hardware Communication (Auto-detect: WebUSB for Mobile, Web Serial for PC) =====
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 async function connectHardware() {
+  if (isMobileDevice()) {
+    await connectViaWebUSB();
+  } else {
+    await connectViaWebSerial();
+  }
+}
+
+// Mobile: WebUSB with FTDI protocol
+async function connectViaWebUSB() {
   if (!('usb' in navigator)) {
     showToast('⚠️ Browser does not support WebUSB');
     return;
@@ -167,7 +180,6 @@ async function connectHardware() {
     const ifaceNum = iface.interfaceNumber;
     await device.claimInterface(ifaceNum);
 
-    // Find bulk OUT endpoint
     let outEndpoint = null;
     for (const ep of iface.alternate.endpoints) {
       if (ep.direction === 'out') {
@@ -175,39 +187,49 @@ async function connectHardware() {
         break;
       }
     }
-
     if (!outEndpoint) throw new Error('No OUT endpoint found');
 
-    // FTDI: Reset device
-    await device.controlTransferOut({
-      requestType: 'vendor', recipient: 'device',
-      request: 0x00, value: 0x0000, index: ifaceNum + 1
-    });
-
-    // FTDI: Set baud rate 9600 (divisor 0x4138)
-    await device.controlTransferOut({
-      requestType: 'vendor', recipient: 'device',
-      request: 0x03, value: 0x4138, index: ifaceNum + 1
-    });
-
-    // FTDI: Set 8N1
-    await device.controlTransferOut({
-      requestType: 'vendor', recipient: 'device',
-      request: 0x04, value: 0x0008, index: ifaceNum + 1
-    });
-
-    // FTDI: Disable flow control
-    await device.controlTransferOut({
-      requestType: 'vendor', recipient: 'device',
-      request: 0x02, value: 0x0000, index: ifaceNum + 1
-    });
+    // FTDI initialization
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
 
     state.usbDevice = device;
     state.usbEndpoint = outEndpoint;
-
+    state.connectionMode = 'webusb';
     onHardwareConnected();
   } catch (err) {
     console.error('WebUSB Error:', err);
+    showToast('⚠️ Hardware connection failed');
+  }
+}
+
+// PC: Web Serial
+async function connectViaWebSerial() {
+  if (!('serial' in navigator)) {
+    showToast('⚠️ Browser does not support Web Serial');
+    return;
+  }
+
+  try {
+    state.serialPort = await navigator.serial.requestPort({
+      filters: [
+        { usbVendorId: 0x0403 },
+        { usbVendorId: 0x1A86 },
+        { usbVendorId: 0x2341 },
+        { usbVendorId: 0x10C4 },
+      ]
+    });
+    await state.serialPort.open({ baudRate: 9600 });
+
+    const encoder = new TextEncoderStream();
+    encoder.readable.pipeTo(state.serialPort.writable);
+    state.serialWriter = encoder.writable.getWriter();
+    state.connectionMode = 'serial';
+    onHardwareConnected();
+  } catch (err) {
+    console.error('Serial Error:', err);
     showToast('⚠️ Hardware connection failed');
   }
 }
@@ -231,11 +253,13 @@ function onHardwareConnected() {
   }, 5000);
 }
 
-// Low-level write via WebUSB
+// Low-level write: auto-selects WebUSB or Web Serial
 async function writeToHardware(data) {
-  if (state.usbDevice && state.usbEndpoint) {
+  if (state.connectionMode === 'webusb' && state.usbDevice) {
     const encoder = new TextEncoder();
     await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
+  } else if (state.connectionMode === 'serial' && state.serialWriter) {
+    await state.serialWriter.write(data);
   }
 }
 
