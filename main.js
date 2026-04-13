@@ -21,6 +21,8 @@ const state = {
   serialPort: null,
   serialWriter: null,
   isHardwareConnected: false,
+  lastSentSpeed: -1,
+  lastSerialTime: 0,
 };
 
 let mapInstance = null;
@@ -159,12 +161,20 @@ async function connectHardware() {
 async function sendSpeedToHardware(percent) {
   if (!state.isHardwareConnected || !state.serialWriter) return;
 
-  // Convert 0-100% to 0-255 PWM value for Arduino
+  // Throttle: Only send every 100ms
+  const now = Date.now();
+  if (now - state.lastSerialTime < 100) return;
+
+  // Convert to 0-255 PWM
   const pwmValue = Math.round((percent / 100) * 255);
   
+  // Only send if the value actually changed
+  if (pwmValue === state.lastSentSpeed) return;
+
   try {
-    // Send as string followed by newline for Arduino's parseInt()
     await state.serialWriter.write(pwmValue + '\n');
+    state.lastSentSpeed = pwmValue;
+    state.lastSerialTime = now;
   } catch (err) {
     console.error('Write Error:', err);
     state.isHardwareConnected = false;
