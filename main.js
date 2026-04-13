@@ -145,7 +145,19 @@ async function connectHardware() {
   }
 
   try {
-    state.serialPort = await navigator.serial.requestPort();
+    // Request port with common Arduino USB chip filters
+    state.serialPort = await navigator.serial.requestPort({
+      filters: [
+        { usbVendorId: 0x1A86 },  // CH340 (most SP Road Nanos)
+        { usbVendorId: 0x0403 },  // FTDI
+        { usbVendorId: 0x10C4 },  // CP2102
+        { usbVendorId: 0x2341 },  // Official Arduino
+        { usbVendorId: 0x2A03 },  // Arduino.org
+      ]
+    }).catch(() => {
+      // If filtered search fails, try without filters
+      return navigator.serial.requestPort();
+    });
     await state.serialPort.open({ baudRate: 9600 });
     
     const encoder = new TextEncoderStream();
