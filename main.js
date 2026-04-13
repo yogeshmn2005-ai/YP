@@ -18,6 +18,9 @@ const state = {
   readingCount: 0,
   startTime: Date.now(),
   locationWatchId: null,
+  serialPort: null,
+  serialWriter: null,
+  isHardwareConnected: false,
 };
 
 let mapInstance = null;
@@ -58,6 +61,7 @@ const dom = {
   toast: document.getElementById('toast'),
   toastMessage: document.getElementById('toastMessage'),
   bgParticles: document.getElementById('bgParticles'),
+  btnSerialConnect: document.getElementById('btnSerialConnect'),
 };
 
 // ===== Initialize =====
@@ -119,6 +123,54 @@ function setupEventListeners() {
     dom.sliderTempDisplay.textContent = temp + '°C';
     updateTemperature(temp, null, 'Custom Input');
   });
+
+  dom.btnSerialConnect.addEventListener('click', connectHardware);
+}
+
+// ===== Web Serial Hardware Communication =====
+async function connectHardware() {
+  if (!('serial' in navigator)) {
+    showToast('❌ Browser does not support Web Serial');
+    return;
+  }
+
+  try {
+    state.serialPort = await navigator.serial.requestPort();
+    await state.serialPort.open({ baudRate: 9600 });
+    
+    const encoder = new TextEncoderStream();
+    const outputDone = encoder.readable.pipeTo(state.serialPort.writable);
+    state.serialWriter = encoder.writable.getWriter();
+    
+    state.isHardwareConnected = true;
+    dom.btnSerialConnect.innerHTML = '🟢 Hardware Linked';
+    dom.btnSerialConnect.classList.add('connected');
+    showToast('🔌 Physical Fan Connected!');
+    
+    // Send initial speed
+    sendSpeedToHardware(state.fanSpeedPercent);
+    
+  } catch (err) {
+    console.error('Serial Error:', err);
+    showToast('⚠️ Hardware connection failed');
+  }
+}
+
+async function sendSpeedToHardware(percent) {
+  if (!state.isHardwareConnected || !state.serialWriter) return;
+
+  // Convert 0-100% to 0-255 PWM value for Arduino
+  const pwmValue = Math.round((percent / 100) * 255);
+  
+  try {
+    // Send as string followed by newline for Arduino's parseInt()
+    await state.serialWriter.write(pwmValue + '\n');
+  } catch (err) {
+    console.error('Write Error:', err);
+    state.isHardwareConnected = false;
+    dom.btnSerialConnect.innerHTML = '🔴 Reconnect';
+    dom.btnSerialConnect.classList.remove('connected');
+  }
 }
 
 // ===== Mode Switch =====
@@ -378,6 +430,9 @@ function calculateFanSpeed(temp) {
   // Power estimate (simulated non-linear power curve up to 85W)
   const power = Math.round(85 * Math.pow(percent / 100, 1.5));
   dom.statPower.textContent = power + 'W';
+
+  // Send to physical hardware if connected
+  sendSpeedToHardware(percent);
 }
 
 // ===== AI/ML: Linear Regression Prediction =====

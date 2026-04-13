@@ -131,6 +131,22 @@
           <span class="dash-label">SPEED PCT</span>
           <span class="dash-value" id="fanSpeedValue">0%</span>
         </div>
+        <!-- Quick Actions -->
+        <div class="glass-card actions-card">
+          <div class="card-header">
+            <h3>Control Mode</h3>
+            <button id="btnSerialConnect" class="btn-secondary serial-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2v4m0 16v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m16 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+              </svg>
+              Connect Hardware
+            </button>
+          </div>
+          <div class="mode-toggle">
+            <button id="btnLocation" class="mode-btn active">Location</button>
+            <button id="btnCustom" class="mode-btn">Custom</button>
+          </div>
+        </div>
         <div class="dash-card highlight">
           <span class="dash-label">ROTATION</span>
           <div class="dash-value-group">

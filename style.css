@@ -629,6 +629,29 @@ body::before {
 }
 
 /* ===== Mode Card ===== */
+.serial-btn {
+  font-size: 0.75rem;
+  padding: 0.5rem 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  transition: all 0.3s ease;
+}
+
+.serial-btn:hover {
+  background: rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+.serial-btn.connected {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #6ee7b7;
+}
+
 .mode-toggle-container {
   display: flex;
   gap: 0.75rem;
