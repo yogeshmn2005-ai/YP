@@ -64,6 +64,7 @@ const dom = {
   toastMessage: document.getElementById('toastMessage'),
   bgParticles: document.getElementById('bgParticles'),
   btnSerialConnect: document.getElementById('btnSerialConnect'),
+  hwStatus: document.getElementById('hwStatus'),
 };
 
 // ===== Initialize =====
@@ -145,12 +146,24 @@ async function connectHardware() {
     state.serialWriter = encoder.writable.getWriter();
     
     state.isHardwareConnected = true;
-    dom.btnSerialConnect.innerHTML = '🟢 Hardware Linked';
+    dom.btnSerialConnect.querySelector('span').textContent = 'Fan Connected';
     dom.btnSerialConnect.classList.add('connected');
+    dom.hwStatus.textContent = 'Connected';
+    dom.hwStatus.classList.add('connected');
     showToast('🔌 Physical Fan Connected!');
     
     // Send initial speed
     sendSpeedToHardware(state.fanSpeedPercent);
+
+    // Keepalive: re-send current speed every 5 seconds
+    setInterval(() => {
+      if (state.isHardwareConnected) {
+        const pwmValue = Math.round((state.fanSpeedPercent / 100) * 255);
+        if (state.serialWriter) {
+          state.serialWriter.write(pwmValue + '\n').catch(() => {});
+        }
+      }
+    }, 5000);
     
   } catch (err) {
     console.error('Serial Error:', err);
@@ -178,8 +191,10 @@ async function sendSpeedToHardware(percent) {
   } catch (err) {
     console.error('Write Error:', err);
     state.isHardwareConnected = false;
-    dom.btnSerialConnect.innerHTML = '🔴 Reconnect';
+    dom.btnSerialConnect.querySelector('span').textContent = 'Reconnect Fan';
     dom.btnSerialConnect.classList.remove('connected');
+    dom.hwStatus.textContent = 'Disconnected';
+    dom.hwStatus.classList.remove('connected');
   }
 }
 
