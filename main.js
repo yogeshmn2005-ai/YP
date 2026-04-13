@@ -78,6 +78,13 @@ function init() {
   setInterval(() => {
     if (state.mode === 'location') fetchLocationTemperature();
   }, 60000); // refresh every minute
+
+  // Stop physical fan when page is closed
+  window.addEventListener('beforeunload', () => {
+    if (state.isHardwareConnected && state.serialWriter) {
+      state.serialWriter.write('0\n').catch(() => {});
+    }
+  });
 }
 
 // ===== Background Particles =====
