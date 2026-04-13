@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Smart Virtual Fan - AI-powered temperature-based fan speed controller. Detects temperature via location or custom input and adjusts fan speed automatically." />
-  <title>Smart Virtual Fan | AI-Powered Fan Controller</title>
+  <meta name="description" content="Smart IoT Fan - AI-powered temperature-based fan speed controller with physical hardware integration via Arduino and Web Serial API." />
+  <title>Smart IoT Fan | AI-Powered Fan Controller</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -56,7 +56,6 @@
       <div class="fan-display-card">
         <div class="fan-container">
           <div class="fan-glow" id="fanGlow"></div>
-
 
         <svg class="fan-svg" id="fanSvg" viewBox="0 0 122.88 122.07">
           <defs>
@@ -131,22 +130,6 @@
           <span class="dash-label">SPEED PCT</span>
           <span class="dash-value" id="fanSpeedValue">0%</span>
         </div>
-        <!-- Quick Actions -->
-        <div class="glass-card actions-card">
-          <div class="card-header">
-            <h3>Control Mode</h3>
-            <button id="btnSerialConnect" class="btn-secondary serial-btn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2v4m0 16v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m16 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
-              </svg>
-              Connect Hardware
-            </button>
-          </div>
-          <div class="mode-toggle">
-            <button id="btnLocation" class="mode-btn active">Location</button>
-            <button id="btnCustom" class="mode-btn">Custom</button>
-          </div>
-        </div>
         <div class="dash-card highlight">
           <span class="dash-label">ROTATION</span>
           <div class="dash-value-group">
@@ -163,6 +146,32 @@
 
     <!-- Right Panel: Controls & Dashboard -->
     <section class="dashboard-section">
+
+      <!-- Hardware Connection Card -->
+      <div class="card hardware-card">
+        <div class="card-header">
+          <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="4" y="4" width="16" height="16" rx="2"/>
+              <rect x="9" y="9" width="6" height="6"/>
+              <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+            </svg>
+            Hardware Link
+          </h2>
+          <span class="card-badge badge-hw" id="hwStatus">Disconnected</span>
+        </div>
+        <div class="hardware-content">
+          <div class="hw-info">
+            <p class="hw-desc">Connect your Arduino-powered physical fan via USB Serial.</p>
+          </div>
+          <button id="btnSerialConnect" class="btn-hardware">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+            </svg>
+            <span>Connect Fan Hardware</span>
+          </button>
+        </div>
+      </div>
 
       <!-- Temperature Card -->
       <div class="card temp-card">
