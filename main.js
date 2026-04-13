@@ -140,105 +140,76 @@ function setupEventListeners() {
   dom.btnSerialConnect.addEventListener('click', connectHardware);
 }
 
-// ===== Hardware Communication (Web Serial + WebUSB FTDI) =====
+// ===== Hardware Communication (WebUSB FTDI) =====
 async function connectHardware() {
-  // Try Web Serial first (works on desktop Chrome)
-  if ('serial' in navigator) {
-    try {
-      state.serialPort = await navigator.serial.requestPort({
-        filters: [
-          { usbVendorId: 0x1A86 },  // CH340
-          { usbVendorId: 0x0403 },  // FTDI
-          { usbVendorId: 0x10C4 },  // CP2102
-          { usbVendorId: 0x2341 },  // Arduino
-        ]
-      });
-      await state.serialPort.open({ baudRate: 9600 });
-
-      const encoder = new TextEncoderStream();
-      encoder.readable.pipeTo(state.serialPort.writable);
-      state.serialWriter = encoder.writable.getWriter();
-      state.connectionMode = 'serial';
-
-      onHardwareConnected();
-      return;
-    } catch (e) {
-      console.log('Web Serial failed, trying WebUSB...', e);
-    }
+  if (!('usb' in navigator)) {
+    showToast('⚠️ Browser does not support WebUSB');
+    return;
   }
 
-  // Fallback: WebUSB with FTDI protocol (works on Android)
-  if ('usb' in navigator) {
-    try {
-      const device = await navigator.usb.requestDevice({
-        filters: [
-          { vendorId: 0x0403 },  // FTDI
-          { vendorId: 0x1A86 },  // CH340
-          { vendorId: 0x2341 },  // Arduino
-        ]
-      });
+  try {
+    const device = await navigator.usb.requestDevice({
+      filters: [
+        { vendorId: 0x0403 },  // FTDI
+        { vendorId: 0x1A86 },  // CH340
+        { vendorId: 0x2341 },  // Arduino
+        { vendorId: 0x10C4 },  // CP2102
+      ]
+    });
 
-      await device.open();
+    await device.open();
 
-      if (device.configuration === null) {
-        await device.selectConfiguration(1);
-      }
-
-      const iface = device.configuration.interfaces[0];
-      const ifaceNum = iface.interfaceNumber;
-      await device.claimInterface(ifaceNum);
-
-      // Find bulk OUT endpoint
-      let outEndpoint = null;
-      for (const ep of iface.alternate.endpoints) {
-        if (ep.direction === 'out') {
-          outEndpoint = ep.endpointNumber;
-          break;
-        }
-      }
-
-      if (!outEndpoint) throw new Error('No OUT endpoint found');
-
-      // FTDI: Reset device
-      await device.controlTransferOut({
-        requestType: 'vendor', recipient: 'device',
-        request: 0x00, value: 0x0000, index: ifaceNum + 1
-      });
-
-      // FTDI: Set baud rate 9600
-      // Divisor calculation: 48MHz/2/9600 = 2500
-      // Integer: 2500>>3 = 312 (0x138), Frac: divfrac[2500&7] = divfrac[4] = 1
-      // Encoded: 0x138 | (1<<14) = 0x4138
-      await device.controlTransferOut({
-        requestType: 'vendor', recipient: 'device',
-        request: 0x03, value: 0x4138, index: ifaceNum + 1
-      });
-
-      // FTDI: Set 8N1 (8 data bits, no parity, 1 stop bit)
-      await device.controlTransferOut({
-        requestType: 'vendor', recipient: 'device',
-        request: 0x04, value: 0x0008, index: ifaceNum + 1
-      });
-
-      // FTDI: Disable flow control
-      await device.controlTransferOut({
-        requestType: 'vendor', recipient: 'device',
-        request: 0x02, value: 0x0000, index: ifaceNum + 1
-      });
-
-      // Store for later use
-      state.usbDevice = device;
-      state.usbEndpoint = outEndpoint;
-      state.connectionMode = 'webusb';
-
-      onHardwareConnected();
-      return;
-    } catch (e) {
-      console.error('WebUSB failed:', e);
+    if (device.configuration === null) {
+      await device.selectConfiguration(1);
     }
-  }
 
-  showToast('⚠️ No compatible connection method found');
+    const iface = device.configuration.interfaces[0];
+    const ifaceNum = iface.interfaceNumber;
+    await device.claimInterface(ifaceNum);
+
+    // Find bulk OUT endpoint
+    let outEndpoint = null;
+    for (const ep of iface.alternate.endpoints) {
+      if (ep.direction === 'out') {
+        outEndpoint = ep.endpointNumber;
+        break;
+      }
+    }
+
+    if (!outEndpoint) throw new Error('No OUT endpoint found');
+
+    // FTDI: Reset device
+    await device.controlTransferOut({
+      requestType: 'vendor', recipient: 'device',
+      request: 0x00, value: 0x0000, index: ifaceNum + 1
+    });
+
+    // FTDI: Set baud rate 9600 (divisor 0x4138)
+    await device.controlTransferOut({
+      requestType: 'vendor', recipient: 'device',
+      request: 0x03, value: 0x4138, index: ifaceNum + 1
+    });
+
+    // FTDI: Set 8N1
+    await device.controlTransferOut({
+      requestType: 'vendor', recipient: 'device',
+      request: 0x04, value: 0x0008, index: ifaceNum + 1
+    });
+
+    // FTDI: Disable flow control
+    await device.controlTransferOut({
+      requestType: 'vendor', recipient: 'device',
+      request: 0x02, value: 0x0000, index: ifaceNum + 1
+    });
+
+    state.usbDevice = device;
+    state.usbEndpoint = outEndpoint;
+
+    onHardwareConnected();
+  } catch (err) {
+    console.error('WebUSB Error:', err);
+    showToast('⚠️ Hardware connection failed');
+  }
 }
 
 function onHardwareConnected() {
@@ -260,11 +231,9 @@ function onHardwareConnected() {
   }, 5000);
 }
 
-// Low-level write: handles both Web Serial and WebUSB
+// Low-level write via WebUSB
 async function writeToHardware(data) {
-  if (state.connectionMode === 'serial' && state.serialWriter) {
-    await state.serialWriter.write(data);
-  } else if (state.connectionMode === 'webusb' && state.usbDevice) {
+  if (state.usbDevice && state.usbEndpoint) {
     const encoder = new TextEncoder();
     await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
   }
