@@ -21,6 +21,9 @@ const state = {
   serialPort: null,
   serialWriter: null,
   isHardwareConnected: false,
+  connectionMode: null,      // 'serial' | 'webusb'
+  usbDevice: null,
+  usbEndpoint: null,
   lastSentSpeed: -1,
   lastSerialTime: 0,
 };
@@ -81,8 +84,8 @@ function init() {
 
   // Stop physical fan when page is closed
   window.addEventListener('beforeunload', () => {
-    if (state.isHardwareConnected && state.serialWriter) {
-      state.serialWriter.write('0\n').catch(() => {});
+    if (state.isHardwareConnected) {
+      writeToHardware('0\n').catch(() => {});
     }
   });
 }
@@ -137,61 +140,138 @@ function setupEventListeners() {
   dom.btnSerialConnect.addEventListener('click', connectHardware);
 }
 
-// ===== Web Serial Hardware Communication =====
+// ===== Hardware Communication (Web Serial + WebUSB FTDI) =====
 async function connectHardware() {
-  if (!('serial' in navigator)) {
-    showToast('❌ Browser does not support Web Serial');
-    return;
+  // Try Web Serial first (works on desktop Chrome)
+  if ('serial' in navigator) {
+    try {
+      state.serialPort = await navigator.serial.requestPort({
+        filters: [
+          { usbVendorId: 0x1A86 },  // CH340
+          { usbVendorId: 0x0403 },  // FTDI
+          { usbVendorId: 0x10C4 },  // CP2102
+          { usbVendorId: 0x2341 },  // Arduino
+        ]
+      });
+      await state.serialPort.open({ baudRate: 9600 });
+
+      const encoder = new TextEncoderStream();
+      encoder.readable.pipeTo(state.serialPort.writable);
+      state.serialWriter = encoder.writable.getWriter();
+      state.connectionMode = 'serial';
+
+      onHardwareConnected();
+      return;
+    } catch (e) {
+      console.log('Web Serial failed, trying WebUSB...', e);
+    }
   }
 
-  try {
-    // Request port with common Arduino USB chip filters
-    state.serialPort = await navigator.serial.requestPort({
-      filters: [
-        { usbVendorId: 0x1A86 },  // CH340 (most SP Road Nanos)
-        { usbVendorId: 0x0403 },  // FTDI
-        { usbVendorId: 0x10C4 },  // CP2102
-        { usbVendorId: 0x2341 },  // Official Arduino
-        { usbVendorId: 0x2A03 },  // Arduino.org
-      ]
-    }).catch(() => {
-      // If filtered search fails, try without filters
-      return navigator.serial.requestPort();
-    });
-    await state.serialPort.open({ baudRate: 9600 });
-    
-    const encoder = new TextEncoderStream();
-    const outputDone = encoder.readable.pipeTo(state.serialPort.writable);
-    state.serialWriter = encoder.writable.getWriter();
-    
-    state.isHardwareConnected = true;
-    dom.btnSerialConnect.querySelector('span').textContent = 'Fan Connected';
-    dom.btnSerialConnect.classList.add('connected');
-    dom.hwStatus.textContent = 'Connected';
-    dom.hwStatus.classList.add('connected');
-    showToast('🔌 Physical Fan Connected!');
-    
-    // Send initial speed
-    sendSpeedToHardware(state.fanSpeedPercent);
+  // Fallback: WebUSB with FTDI protocol (works on Android)
+  if ('usb' in navigator) {
+    try {
+      const device = await navigator.usb.requestDevice({
+        filters: [
+          { vendorId: 0x0403 },  // FTDI
+          { vendorId: 0x1A86 },  // CH340
+          { vendorId: 0x2341 },  // Arduino
+        ]
+      });
 
-    // Keepalive: re-send current speed every 5 seconds
-    setInterval(() => {
-      if (state.isHardwareConnected) {
-        const pwmValue = Math.round((state.fanSpeedPercent / 100) * 255);
-        if (state.serialWriter) {
-          state.serialWriter.write(pwmValue + '\n').catch(() => {});
+      await device.open();
+
+      if (device.configuration === null) {
+        await device.selectConfiguration(1);
+      }
+
+      const iface = device.configuration.interfaces[0];
+      const ifaceNum = iface.interfaceNumber;
+      await device.claimInterface(ifaceNum);
+
+      // Find bulk OUT endpoint
+      let outEndpoint = null;
+      for (const ep of iface.alternate.endpoints) {
+        if (ep.direction === 'out') {
+          outEndpoint = ep.endpointNumber;
+          break;
         }
       }
-    }, 5000);
-    
-  } catch (err) {
-    console.error('Serial Error:', err);
-    showToast('⚠️ Hardware connection failed');
+
+      if (!outEndpoint) throw new Error('No OUT endpoint found');
+
+      // FTDI: Reset device
+      await device.controlTransferOut({
+        requestType: 'vendor', recipient: 'device',
+        request: 0x00, value: 0x0000, index: ifaceNum + 1
+      });
+
+      // FTDI: Set baud rate 9600
+      // Divisor calculation: 48MHz/2/9600 = 2500
+      // Integer: 2500>>3 = 312 (0x138), Frac: divfrac[2500&7] = divfrac[4] = 1
+      // Encoded: 0x138 | (1<<14) = 0x4138
+      await device.controlTransferOut({
+        requestType: 'vendor', recipient: 'device',
+        request: 0x03, value: 0x4138, index: ifaceNum + 1
+      });
+
+      // FTDI: Set 8N1 (8 data bits, no parity, 1 stop bit)
+      await device.controlTransferOut({
+        requestType: 'vendor', recipient: 'device',
+        request: 0x04, value: 0x0008, index: ifaceNum + 1
+      });
+
+      // FTDI: Disable flow control
+      await device.controlTransferOut({
+        requestType: 'vendor', recipient: 'device',
+        request: 0x02, value: 0x0000, index: ifaceNum + 1
+      });
+
+      // Store for later use
+      state.usbDevice = device;
+      state.usbEndpoint = outEndpoint;
+      state.connectionMode = 'webusb';
+
+      onHardwareConnected();
+      return;
+    } catch (e) {
+      console.error('WebUSB failed:', e);
+    }
+  }
+
+  showToast('⚠️ No compatible connection method found');
+}
+
+function onHardwareConnected() {
+  state.isHardwareConnected = true;
+  dom.btnSerialConnect.querySelector('span').textContent = 'Fan Connected';
+  dom.btnSerialConnect.classList.add('connected');
+  dom.hwStatus.textContent = 'Connected';
+  dom.hwStatus.classList.add('connected');
+  showToast('🔌 Physical Fan Connected!');
+
+  sendSpeedToHardware(state.fanSpeedPercent);
+
+  // Keepalive: re-send speed every 5 seconds
+  setInterval(() => {
+    if (state.isHardwareConnected) {
+      const pwmValue = Math.round((state.fanSpeedPercent / 100) * 255);
+      writeToHardware(pwmValue + '\n').catch(() => {});
+    }
+  }, 5000);
+}
+
+// Low-level write: handles both Web Serial and WebUSB
+async function writeToHardware(data) {
+  if (state.connectionMode === 'serial' && state.serialWriter) {
+    await state.serialWriter.write(data);
+  } else if (state.connectionMode === 'webusb' && state.usbDevice) {
+    const encoder = new TextEncoder();
+    await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
   }
 }
 
 async function sendSpeedToHardware(percent) {
-  if (!state.isHardwareConnected || !state.serialWriter) return;
+  if (!state.isHardwareConnected) return;
 
   // Throttle: Only send every 100ms
   const now = Date.now();
@@ -199,12 +279,12 @@ async function sendSpeedToHardware(percent) {
 
   // Convert to 0-255 PWM
   const pwmValue = Math.round((percent / 100) * 255);
-  
+
   // Only send if the value actually changed
   if (pwmValue === state.lastSentSpeed) return;
 
   try {
-    await state.serialWriter.write(pwmValue + '\n');
+    await writeToHardware(pwmValue + '\n');
     state.lastSentSpeed = pwmValue;
     state.lastSerialTime = now;
   } catch (err) {
@@ -216,6 +296,7 @@ async function sendSpeedToHardware(percent) {
     dom.hwStatus.classList.remove('connected');
   }
 }
+
 
 // ===== Mode Switch =====
 function switchMode(mode) {
