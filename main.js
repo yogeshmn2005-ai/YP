@@ -75,37 +75,6 @@ const dom = {
   themeIconMoon: document.getElementById('themeIconMoon'),
 };
 
-// ===== Debug Panel =====
-let debugLogs = [];
-function addDebugLog(msg) {
-  const now = new Date();
-  const time = now.toLocaleTimeString('en-IN', { hour12: false });
-  debugLogs.push(`[${time}] ${msg}`);
-  if (debugLogs.length > 100) debugLogs.shift();
-  updateDebugPanel();
-}
-
-function updateDebugPanel() {
-  let panel = document.getElementById('debugPanel');
-  if (!panel) return;
-  const logElem = panel.querySelector('.debug-log');
-  if (logElem) logElem.textContent = debugLogs.join('\n');
-}
-
-function copyDebugLogs() {
-  navigator.clipboard.writeText(debugLogs.join('\n'));
-  showToast('Debug log copied!', 'success');
-}
-
-function setupDebugPanel() {
-  const panel = document.getElementById('debugPanel');
-  if (!panel) return;
-  const btn = panel.querySelector('#copyDebugBtn');
-  if (btn) btn.onclick = copyDebugLogs;
-  updateDebugPanel();
-}
-
-setupDebugPanel();
 
 // ===== Initialize =====
 function init() {
