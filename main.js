@@ -272,6 +272,15 @@ async function disconnectHardware() {
     clearInterval(state.keepaliveTimer);
   }
   
+  // Power off the physical fan before dropping connection
+  if (state.isHardwareConnected) {
+    try {
+      await writeToHardware('0\n');
+      // Give the hardware a tiny moment to process the turn-off command
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } catch (e) {}
+  }
+  
   if (state.serialPort) {
     try { await state.serialPort.close(); } catch(e) {}
     state.serialPort = null;
