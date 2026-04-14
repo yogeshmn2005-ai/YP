@@ -3,7 +3,9 @@ import './style.css';
 // ===== Configuration =====
 // Using Open-Meteo API — completely free, no API key required
 const WEATHER_BASE = 'https://api.open-meteo.com/v1/forecast';
-// Polling loop removed to prevent Android OS pipe blocking
+const GEOCODE_BASE = 'https://nominatim.openstreetmap.org/reverse';
+
+// ===== State =====
 const state = {
   mode: 'location',       // 'location' | 'custom'
   temperature: null,
@@ -68,24 +70,6 @@ const dom = {
   btnDisconnect: document.getElementById('btnDisconnect'),
   hwStatus: document.getElementById('hwStatus'),
   feelsLikeValue: document.getElementById('feelsLikeValue'),
-  debugPanel: document.getElementById('debugPanel'),
-  debugContent: document.getElementById('debugContent'),
-  btnToggleDebug: document.getElementById('btnToggleDebug'),
-  btnCloseDebug: document.getElementById('btnCloseDebug'),
-};
-
-// ===== Window Debug Logger =====
-window.logDebug = function(msg, type = 'info') {
-  console.log(`[SYS] ${msg}`);
-  if (!dom.debugContent) return;
-  
-  const line = document.createElement('div');
-  line.className = `debug-line ${type}`;
-  const time = new Date().toISOString().split('T')[1].slice(0, 8);
-  line.innerHTML = `<span class="timestamp">[${time}]</span> ${msg}`;
-  
-  dom.debugContent.appendChild(line);
-  dom.debugContent.scrollTop = dom.debugContent.scrollHeight;
 };
 
 // ===== Initialize =====
@@ -160,9 +144,6 @@ function setupEventListeners() {
 
   dom.btnSerialConnect.addEventListener('click', connectHardware);
   dom.btnDisconnect.addEventListener('click', disconnectHardware);
-  
-  dom.btnToggleDebug.addEventListener('click', () => dom.debugPanel.classList.toggle('show'));
-  dom.btnCloseDebug.addEventListener('click', () => dom.debugPanel.classList.remove('show'));
 }
 
 // ===== Hardware Communication (Auto-detect: WebUSB for Mobile, Web Serial for PC) =====
@@ -171,21 +152,17 @@ function isMobileDevice() {
 }
 
 async function connectHardware() {
-  if (isMobileDevice() && 'usb' in navigator) {
+  if (isMobileDevice()) {
     await connectViaWebUSB();
-  } else if ('serial' in navigator) {
-    await connectViaWebSerial();
   } else {
-    showToast('Browser does not support Serial connections', 'warning');
+    await connectViaWebSerial();
   }
 }
 
-// Mobile/Fallback: WebUSB with FTDI & CH340 protocol
+// Mobile: WebUSB with FTDI protocol
 async function connectViaWebUSB() {
-  logDebug('Initiating WebUSB connection...', 'info');
   if (!('usb' in navigator)) {
-    showToast('Browser does not support WebUSB', 'warning');
-    logDebug('Error: WebUSB not supported natively', 'error');
+    showToast('⚠️ Browser does not support WebUSB');
     return;
   }
 
@@ -200,73 +177,34 @@ async function connectViaWebUSB() {
     });
 
     await device.open();
-    logDebug(`Device opened: VID=0x${device.vendorId.toString(16)} PID=0x${device.productId.toString(16)}`, 'success');
-
-    // Clean out any crashed hardware flags from previous WebUSB attempts
-    await device.reset();
-    logDebug('Hardware physically reset to clear pipeline.', 'info');
 
     if (device.configuration === null) {
       await device.selectConfiguration(1);
-      logDebug('Selected configuration 1', 'info');
     }
 
     const iface = device.configuration.interfaces[0];
     const ifaceNum = iface.interfaceNumber;
     await device.claimInterface(ifaceNum);
-    logDebug(`Claimed interface ${ifaceNum}`, 'info');
 
     let outEndpoint = null;
-    let inEndpoint = null;
     for (const ep of iface.alternate.endpoints) {
       if (ep.direction === 'out') {
         outEndpoint = ep.endpointNumber;
-      }
-      if (ep.direction === 'in') {
-        inEndpoint = ep.endpointNumber;
+        break;
       }
     }
     if (!outEndpoint) throw new Error('No OUT endpoint found');
-    logDebug(`Found OUT=${outEndpoint}, IN=${inEndpoint}`, 'info');
 
-    // Hardware-specific Initialization (to correctly set 9600 baud rate)
-    if (device.vendorId === 0x0403) {
-      logDebug('Detected FTDI device. Sending init commands...', 'info');
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 }); // 9600 baud
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
-    } else if (device.vendorId === 0x1A86) {
-      logDebug('Detected CH340 Clone. Pacing 9600baud initialization...', 'info');
-      const delay = (ms) => new Promise(r => setTimeout(r, ms));
-      
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0, index: 0 }); 
-      await delay(20); // Android Chrome latency fix: Clone chips freeze if flooded instantly
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0xb282 }); 
-      await delay(20);
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0f2c, index: 0x0008 }); 
-      await delay(20);
-      
-      // Hardware Reset Pulse: Safely cycles DTR so Arduino boots correctly
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0xdf, index: 0 }); 
-      await delay(100); 
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x9f, index: 0 }); 
-      await delay(50);
-    } else {
-      logDebug(`Unrecognized clone chip (VID: 0x${device.vendorId.toString(16)}). Bypassing vendor init.`, 'warning');
-    }
+    // FTDI initialization
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
 
-    state.usbEndpointOut = outEndpoint;
-    state.usbEndpointIn = inEndpoint;
+    state.usbEndpoint = outEndpoint;
     state.connectionMode = 'webusb';
-    logDebug('WebUSB pipeline established successfully.', 'success');
     onHardwareConnected();
-    
-    // IN Polling intentionally omitted. Attempting to await transferIn 
-    // permanently locks the synchronous USB stack queue on Android!
-    
   } catch (err) {
-    logDebug(`WebUSB Handshake Error: ${err.message}`, 'error');
     console.error('WebUSB Error:', err);
     showToast('Hardware connection failed', 'warning');
   }
@@ -274,20 +212,21 @@ async function connectViaWebUSB() {
 
 // PC: Web Serial
 async function connectViaWebSerial() {
-  logDebug('Initiating Native Web Serial pipeline...', 'info');
   if (!('serial' in navigator)) {
     showToast('Browser does not support Web Serial', 'warning');
     return;
   }
 
   try {
-    // CRITICAL FIX: Leaving the filters array completely empty forces Android Chrome 
-    // to bypass its internal whitelist, allowing the CH340 Clone to appear in the popup!
-    state.serialPort = await navigator.serial.requestPort();
-    logDebug('Serial Port requested & selected natively.', 'info');
-    
+    state.serialPort = await navigator.serial.requestPort({
+      filters: [
+        { usbVendorId: 0x0403 },
+        { usbVendorId: 0x1A86 },
+        { usbVendorId: 0x2341 },
+        { usbVendorId: 0x10C4 },
+      ]
+    });
     await state.serialPort.open({ baudRate: 9600 });
-    logDebug('Serial Port opened successfully at 9600 baud.', 'success');
 
     const encoder = new TextEncoderStream();
     encoder.readable.pipeTo(state.serialPort.writable);
@@ -316,8 +255,7 @@ function onHardwareConnected() {
   state.keepaliveTimer = setInterval(() => {
     if (state.isHardwareConnected) {
       const pwmValue = Math.round((state.fanSpeedPercent / 100) * 255);
-      logDebug(`[Keepalive] Triggering TX loop for PWM: ${pwmValue}`, 'info');
-      writeToHardware(pwmValue + '\\n').catch((e) => logDebug(`[Keepalive Err] ${e.message}`, 'error'));
+      writeToHardware(pwmValue + '\n').catch(() => {});
     }
   }, 5000);
 }
@@ -326,22 +264,9 @@ function onHardwareConnected() {
 async function writeToHardware(data) {
   if (state.connectionMode === 'webusb' && state.usbDevice) {
     const encoder = new TextEncoder();
-    const payload = encoder.encode(data);
-    try {
-      const result = await state.usbDevice.transferOut(state.usbEndpointOut, payload);
-      logDebug(`[USB TX] Payload: '${data.trim()}', Status: ${result.status}, Bytes: ${result.bytesWritten}`, 'success');
-      if (result.status === 'stall') {
-         await state.usbDevice.clearHalt('out', state.usbEndpointOut);
-      }
-    } catch (e) {
-      logDebug(`[USB TX Error] ${e.message}`, 'error');
-    }
+    await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
   } else if (state.connectionMode === 'serial' && state.serialWriter) {
-    try {
-      await state.serialWriter.write(data);
-    } catch(e) {
-      logDebug(`[Serial TX Error] ${e.message}`, 'error');
-    }
+    await state.serialWriter.write(data);
   }
 }
 
