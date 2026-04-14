@@ -5,6 +5,23 @@ import './style.css';
 const WEATHER_BASE = 'https://api.open-meteo.com/v1/forecast';
 const GEOCODE_BASE = 'https://nominatim.openstreetmap.org/reverse';
 
+async function pollWebUsbInEndpoint() {
+  if (!state.isHardwareConnected || state.connectionMode !== 'webusb' || !state.usbDevice) return;
+  try {
+    const result = await state.usbDevice.transferIn(state.usbEndpointIn, 64);
+    if (result && result.data && result.data.byteLength > 0) {
+      const decoded = new TextDecoder().decode(result.data);
+      // logDebug(`RX: ${decoded.trim()}`); // Optional verbose logging
+    }
+  } catch (e) {
+    if (state.isHardwareConnected) logDebug(`RX Poll Error: ${e.message}`, 'warning');
+  }
+  // Schedule next read immediately
+  if (state.isHardwareConnected) {
+    setTimeout(pollWebUsbInEndpoint, 10);
+  }
+}
+
 // ===== State =====
 const state = {
   mode: 'location',       // 'location' | 'custom'
@@ -215,14 +232,17 @@ async function connectViaWebUSB() {
     logDebug(`Claimed interface ${ifaceNum}`, 'info');
 
     let outEndpoint = null;
+    let inEndpoint = null;
     for (const ep of iface.alternate.endpoints) {
       if (ep.direction === 'out') {
         outEndpoint = ep.endpointNumber;
-        break;
+      }
+      if (ep.direction === 'in') {
+        inEndpoint = ep.endpointNumber;
       }
     }
     if (!outEndpoint) throw new Error('No OUT endpoint found');
-    logDebug(`Found OUT endpoint ${outEndpoint}`, 'info');
+    logDebug(`Found OUT=${outEndpoint}, IN=${inEndpoint}`, 'info');
 
     // Hardware-specific Initialization (to correctly set 9600 baud rate)
     if (device.vendorId === 0x0403) {
@@ -242,10 +262,19 @@ async function connectViaWebUSB() {
       logDebug(`Unrecognized clone chip (VID: 0x${device.vendorId.toString(16)}). Bypassing vendor init.`, 'warning');
     }
 
-    state.usbEndpoint = outEndpoint;
+    state.usbEndpointOut = outEndpoint;
+    state.usbEndpointIn = inEndpoint;
     state.connectionMode = 'webusb';
     logDebug('WebUSB pipeline established successfully.', 'success');
     onHardwareConnected();
+
+    // CH340 CRITICAL FIX: We MUST constantly drain the IN endpoint buffer.
+    // If the Arduino sends any serial data (even just initialization text), the CH340 
+    // will fill its 64-byte IN buffer and entirely lock up all OUT communications (stalling).
+    if (inEndpoint) {
+      pollWebUsbInEndpoint();
+    }
+    
   } catch (err) {
     logDebug(`WebUSB Handshake Error: ${err.message}`, 'error');
     console.error('WebUSB Error:', err);
@@ -307,7 +336,7 @@ function onHardwareConnected() {
 async function writeToHardware(data) {
   if (state.connectionMode === 'webusb' && state.usbDevice) {
     const encoder = new TextEncoder();
-    await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
+    await state.usbDevice.transferOut(state.usbEndpointOut, encoder.encode(data));
   } else if (state.connectionMode === 'serial' && state.serialWriter) {
     await state.serialWriter.write(data);
   }
