@@ -9,9 +9,7 @@
   --bg-chassis: #e0e5ec;
   --bg-panel: #f0f2f5;
   --bg-muted: #d1d9e6;
-  --bg-screen: #d0d7de;
-  --screen-text: #2d3436;
-  --screen-text-muted: #636e72;
+  --bg-screen: #2d3436;
   --text-primary: #2d3436;
   --text-secondary: #4a5568;
   --text-muted: #636e72;
@@ -51,8 +49,6 @@
   --bg-panel: #22272e;
   --bg-muted: #14181d;
   --bg-screen: #0d1117;
-  --screen-text: #e0e5ec;
-  --screen-text-muted: #7b8794;
   --text-primary: #e0e5ec;
   --text-secondary: #a8b2d1;
   --text-muted: #7b8794;
@@ -168,16 +164,11 @@ body::before {
   border-radius: 50%;
   background: var(--success);
   box-shadow: 0 0 8px 2px var(--success-glow);
-  animation: ledPulseGreen 2s ease-in-out infinite;
+  animation: ledPulse 2s ease-in-out infinite;
   flex-shrink: 0;
 }
 
-@keyframes ledPulseRed {
-  0%, 100% { opacity: 1; box-shadow: 0 0 8px 2px var(--accent-glow); }
-  50% { opacity: 0.6; box-shadow: 0 0 4px 1px var(--accent-glow); }
-}
-
-@keyframes ledPulseGreen {
+@keyframes ledPulse {
   0%, 100% { opacity: 1; box-shadow: 0 0 8px 2px var(--success-glow); }
   50% { opacity: 0.6; box-shadow: 0 0 4px 1px var(--success-glow); }
 }
@@ -208,6 +199,21 @@ body::before {
   letter-spacing: 0.02em;
 }
 
+.header-location {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.header-location svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
 
 /* Dark mode toggle */
 .theme-toggle {
@@ -487,14 +493,14 @@ body::before {
 }
 
 .dash-card .dash-label {
-  color: var(--screen-text-muted);
+  color: #7b8794;
 }
 
 .dash-value {
   font-family: var(--font-mono);
   font-size: 1.3rem;
   font-weight: 700;
-  color: var(--screen-text);
+  color: #e0e5ec;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -506,7 +512,7 @@ body::before {
 }
 
 .dash-value.speed-text {
-  color: var(--screen-text-muted);
+  color: #a8b2d1;
   font-size: 1rem;
 }
 
@@ -520,7 +526,7 @@ body::before {
   font-family: var(--font-mono);
   font-size: 0.65rem;
   font-weight: 600;
-  color: var(--screen-text-muted);
+  color: #7b8794;
 }
 
 /* ===== Speed Bar ===== */
@@ -594,14 +600,13 @@ body::before {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 8px 2px var(--accent-glow);
-  animation: ledPulseRed 2s ease-in-out infinite;
+  animation: ledPulse 2s ease-in-out infinite;
   flex-shrink: 0;
 }
 
 .hw-status-led.connected {
   background: var(--success);
   box-shadow: 0 0 8px 2px var(--success-glow);
-  animation: ledPulseGreen 2s ease-in-out infinite;
 }
 
 /* ===== Buttons (Physical Keys) ===== */
@@ -765,25 +770,6 @@ body::before {
   display: block !important;
   opacity: 0;
   pointer-events: none;
-}
-
-/* Location Status Row */
-.temp-location-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 1.25rem;
-  padding: 0.75rem 1rem;
-  background: var(--bg-panel);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-  box-shadow: var(--shadow-recessed);
-}
-
-.temp-location-row svg {
-  color: var(--accent);
-  flex-shrink: 0;
 }
 
 /* Leaflet overrides */
@@ -1049,7 +1035,7 @@ body::before {
 .stat-label {
   font-family: var(--font-mono);
   font-size: 0.6rem;
-  color: var(--screen-text-muted);
+  color: #7b8794;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -1058,7 +1044,7 @@ body::before {
   font-family: var(--font-mono);
   font-size: 1rem;
   font-weight: 700;
-  color: var(--screen-text);
+  color: #e0e5ec;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1194,6 +1180,11 @@ body::before {
 
   .header-info {
     gap: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .header-location {
+    max-width: 150px;
     font-size: 0.75rem;
   }
 
