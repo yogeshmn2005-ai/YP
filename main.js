@@ -147,19 +147,23 @@ function setupEventListeners() {
 }
 
 // ===== Hardware Communication (Auto-detect: WebUSB for Mobile, Web Serial for PC) =====
-function isMobileDevice() {
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
+// User Agent checks are removed as capabilities checks are more robust
 
 async function connectHardware() {
-  if (isMobileDevice()) {
-    await connectViaWebUSB();
-  } else {
+  // Always prefer native Web Serial first (handles FTDI, CH340, CP2102 properly on all platforms)
+  if ('serial' in navigator) {
     await connectViaWebSerial();
+  } 
+  // Fallback to WebUSB if Serial API is unavailable
+  else if ('usb' in navigator) {
+    await connectViaWebUSB();
+  } 
+  else {
+    showToast('Browser does not support Serial connections', 'warning');
   }
 }
 
-// Mobile: WebUSB with FTDI protocol
+// Mobile/Fallback: WebUSB with FTDI protocol
 async function connectViaWebUSB() {
   if (!('usb' in navigator)) {
     showToast('⚠️ Browser does not support WebUSB');
@@ -195,11 +199,15 @@ async function connectViaWebUSB() {
     }
     if (!outEndpoint) throw new Error('No OUT endpoint found');
 
-    // FTDI initialization
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 });
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
+    // Only send FTDI-specific initialization if it's actually an FTDI device
+    if (device.vendorId === 0x0403) {
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 });
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
+    } else {
+      console.log('Non-FTDI device detected via WebUSB; bypassing FTDI setup params.');
+    }
 
     state.usbEndpoint = outEndpoint;
     state.connectionMode = 'webusb';
