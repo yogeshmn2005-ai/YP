@@ -67,7 +67,9 @@ const dom = {
   toastMessage: document.getElementById('toastMessage'),
   bgParticles: document.getElementById('bgParticles'),
   btnSerialConnect: document.getElementById('btnSerialConnect'),
+  btnDisconnect: document.getElementById('btnDisconnect'),
   hwStatus: document.getElementById('hwStatus'),
+  feelsLikeValue: document.getElementById('feelsLikeValue'),
 };
 
 // ===== Initialize =====
@@ -138,6 +140,7 @@ function setupEventListeners() {
   });
 
   dom.btnSerialConnect.addEventListener('click', connectHardware);
+  dom.btnDisconnect.addEventListener('click', disconnectHardware);
 }
 
 // ===== Hardware Communication (Auto-detect: WebUSB for Mobile, Web Serial for PC) =====
@@ -235,8 +238,10 @@ async function connectViaWebSerial() {
 
 function onHardwareConnected() {
   state.isHardwareConnected = true;
-  dom.btnSerialConnect.querySelector('span').textContent = 'Fan Connected';
-  dom.btnSerialConnect.classList.add('connected');
+  
+  dom.btnSerialConnect.classList.add('hidden');
+  dom.btnDisconnect.classList.remove('hidden');
+  
   dom.hwStatus.textContent = 'Connected';
   dom.hwStatus.classList.add('connected');
   showToast('🔌 Physical Fan Connected!');
@@ -244,7 +249,7 @@ function onHardwareConnected() {
   sendSpeedToHardware(state.fanSpeedPercent);
 
   // Keepalive: re-send speed every 5 seconds
-  setInterval(() => {
+  state.keepaliveTimer = setInterval(() => {
     if (state.isHardwareConnected) {
       const pwmValue = Math.round((state.fanSpeedPercent / 100) * 255);
       writeToHardware(pwmValue + '\n').catch(() => {});
@@ -260,6 +265,33 @@ async function writeToHardware(data) {
   } else if (state.connectionMode === 'serial' && state.serialWriter) {
     await state.serialWriter.write(data);
   }
+}
+
+async function disconnectHardware() {
+  if (state.keepaliveTimer) {
+    clearInterval(state.keepaliveTimer);
+  }
+  
+  if (state.serialPort) {
+    try { await state.serialPort.close(); } catch(e) {}
+    state.serialPort = null;
+    state.serialWriter = null;
+  }
+  
+  if (state.usbDevice) {
+    try { await state.usbDevice.close(); } catch(e) {}
+    state.usbDevice = null;
+  }
+  
+  state.isHardwareConnected = false;
+  state.connectionMode = null;
+  
+  dom.btnDisconnect.classList.add('hidden');
+  dom.btnSerialConnect.classList.remove('hidden', 'connected');
+  
+  dom.hwStatus.textContent = 'Disconnected';
+  dom.hwStatus.classList.remove('connected');
+  showToast('Hardware disconnected');
 }
 
 async function sendSpeedToHardware(percent) {
@@ -498,6 +530,10 @@ function calculateFanSpeed(temp, humidity) {
     if (effectiveTemp < temp) {
       effectiveTemp = temp;
     }
+  }
+  
+  if (dom.feelsLikeValue) {
+    dom.feelsLikeValue.textContent = Math.round(effectiveTemp * 10) / 10;
   }
 
   // Continuous speed curve: 0% at <=15°C, 100% at >=40°C
