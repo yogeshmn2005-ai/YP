@@ -195,7 +195,6 @@ async function connectViaWebUSB() {
     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
 
-    state.usbDevice = device;
     state.usbEndpoint = outEndpoint;
     state.connectionMode = 'webusb';
     onHardwareConnected();
@@ -475,8 +474,8 @@ function updateTemperature(temp, humidity, condition) {
   state.tempHistory.push({ time: Date.now(), temp });
   if (state.tempHistory.length > 30) state.tempHistory.shift();
 
-  // Calculate fan speed
-  calculateFanSpeed(temp);
+  // Calculate fan speed (Now uses both Temp and Humidity)
+  calculateFanSpeed(temp, humidity);
 
   // Run AI prediction
   runPrediction();
@@ -485,18 +484,32 @@ function updateTemperature(temp, humidity, condition) {
   drawChart();
 }
 
-// ===== Fan Speed Algorithm =====
-function calculateFanSpeed(temp) {
+// ===== Fan Speed Algorithm (Temp + Humidity) =====
+function calculateFanSpeed(temp, humidity) {
+  // Use Australian Apparent Temperature (Feels Like) formula 
+  // AT = Ta + 0.33 * e - 4.00, where e = water vapour pressure
+  let effectiveTemp = temp;
+  if (humidity != null) {
+    const e = (humidity / 100) * 6.105 * Math.exp((17.27 * temp) / (237.7 + temp));
+    // Provide a small boost for high humidity
+    effectiveTemp = temp + 0.33 * e - 4.00;
+    
+    // Only use effective temp if it's hotter than the actual dry temp
+    if (effectiveTemp < temp) {
+      effectiveTemp = temp;
+    }
+  }
+
   // Continuous speed curve: 0% at <=15°C, 100% at >=40°C
   const MIN_TEMP = 15;
   const MAX_TEMP = 40;
   
   let percent = 0;
-  if (temp > MIN_TEMP) {
-    if (temp >= MAX_TEMP) {
+  if (effectiveTemp > MIN_TEMP) {
+    if (effectiveTemp >= MAX_TEMP) {
       percent = 100;
     } else {
-      percent = ((temp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)) * 100;
+      percent = ((effectiveTemp - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)) * 100;
     }
   }
   percent = Math.round(percent);
