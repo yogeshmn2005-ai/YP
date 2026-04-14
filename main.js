@@ -171,10 +171,12 @@ function isMobileDevice() {
 }
 
 async function connectHardware() {
-  if (isMobileDevice() && 'usb' in navigator) {
-    await connectViaWebUSB();
-  } else if ('serial' in navigator) {
+  // Always prefer Native Web Serial First. Chrome perfectly handles CH340 internally
+  // if we don't accidentally block it using restrictive device filters!
+  if ('serial' in navigator) {
     await connectViaWebSerial();
+  } else if ('usb' in navigator) {
+    await connectViaWebUSB();
   } else {
     showToast('Browser does not support Serial connections', 'warning');
   }
@@ -267,21 +269,20 @@ async function connectViaWebUSB() {
 
 // PC: Web Serial
 async function connectViaWebSerial() {
+  logDebug('Initiating Native Web Serial pipeline...', 'info');
   if (!('serial' in navigator)) {
     showToast('Browser does not support Web Serial', 'warning');
     return;
   }
 
   try {
-    state.serialPort = await navigator.serial.requestPort({
-      filters: [
-        { usbVendorId: 0x0403 },
-        { usbVendorId: 0x1A86 },
-        { usbVendorId: 0x2341 },
-        { usbVendorId: 0x10C4 },
-      ]
-    });
+    // CRITICAL FIX: Leaving the filters array completely empty forces Android Chrome 
+    // to bypass its internal whitelist, allowing the CH340 Clone to appear in the popup!
+    state.serialPort = await navigator.serial.requestPort();
+    logDebug('Serial Port requested & selected natively.', 'info');
+    
     await state.serialPort.open({ baudRate: 9600 });
+    logDebug('Serial Port opened successfully at 9600 baud.', 'success');
 
     const encoder = new TextEncoderStream();
     encoder.readable.pipeTo(state.serialPort.writable);
