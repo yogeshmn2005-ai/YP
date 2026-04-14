@@ -171,12 +171,10 @@ function isMobileDevice() {
 }
 
 async function connectHardware() {
-  // Always prefer Native Web Serial First. Chrome perfectly handles CH340 internally
-  // if we don't accidentally block it using restrictive device filters!
-  if ('serial' in navigator) {
-    await connectViaWebSerial();
-  } else if ('usb' in navigator) {
+  if (isMobileDevice() && 'usb' in navigator) {
     await connectViaWebUSB();
+  } else if ('serial' in navigator) {
+    await connectViaWebSerial();
   } else {
     showToast('Browser does not support Serial connections', 'warning');
   }
@@ -239,14 +237,21 @@ async function connectViaWebUSB() {
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
     } else if (device.vendorId === 0x1A86) {
-      logDebug('Detected CH340 Clone. Sending advanced 9600baud init...', 'info');
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0, index: 0 }); 
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0xb282 }); // 9600 baud
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0f2c, index: 0x0008 }); 
+      logDebug('Detected CH340 Clone. Pacing 9600baud initialization...', 'info');
+      const delay = (ms) => new Promise(r => setTimeout(r, ms));
       
-      // CRITICAL FIX: 0xFF completely deverts DTR and RTS (Hardware Flow Control disabled)
-      // This allows the bytes to flow out immediately instead of hanging in the pipeline!
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0xFF, index: 0 }); 
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0, index: 0 }); 
+      await delay(20); // Android Chrome latency fix: Clone chips freeze if flooded instantly
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0xb282 }); 
+      await delay(20);
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0f2c, index: 0x0008 }); 
+      await delay(20);
+      
+      // Hardware Reset Pulse: Safely cycles DTR so Arduino boots correctly
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0xdf, index: 0 }); 
+      await delay(100); 
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x9f, index: 0 }); 
+      await delay(50);
     } else {
       logDebug(`Unrecognized clone chip (VID: 0x${device.vendorId.toString(16)}). Bypassing vendor init.`, 'warning');
     }
