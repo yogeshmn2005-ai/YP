@@ -147,23 +147,21 @@ function setupEventListeners() {
 }
 
 // ===== Hardware Communication (Auto-detect: WebUSB for Mobile, Web Serial for PC) =====
-// User Agent checks are removed as capabilities checks are more robust
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
 
 async function connectHardware() {
-  // Always prefer native Web Serial first (handles FTDI, CH340, CP2102 properly on all platforms)
-  if ('serial' in navigator) {
-    await connectViaWebSerial();
-  } 
-  // Fallback to WebUSB if Serial API is unavailable
-  else if ('usb' in navigator) {
+  if (isMobileDevice() && 'usb' in navigator) {
     await connectViaWebUSB();
-  } 
-  else {
+  } else if ('serial' in navigator) {
+    await connectViaWebSerial();
+  } else {
     showToast('Browser does not support Serial connections', 'warning');
   }
 }
 
-// Mobile/Fallback: WebUSB with FTDI protocol
+// Mobile/Fallback: WebUSB with FTDI & CH340 protocol
 async function connectViaWebUSB() {
   if (!('usb' in navigator)) {
     showToast('⚠️ Browser does not support WebUSB');
@@ -199,14 +197,22 @@ async function connectViaWebUSB() {
     }
     if (!outEndpoint) throw new Error('No OUT endpoint found');
 
-    // Only send FTDI-specific initialization if it's actually an FTDI device
+    // Hardware-specific Initialization (to correctly set 9600 baud rate)
     if (device.vendorId === 0x0403) {
+      // FTDI Chip Initialization
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 });
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 }); // 9600 baud
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
+    } else if (device.vendorId === 0x1A86) {
+      // CH340 Clone Chip Initialization (Required for 'Old Bootloader' Nanos)
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0, index: 0 }); 
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0xb282 }); // 9600 baud
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0f2c, index: 0x0008 }); 
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0xdf, index: 0 }); // 8N1
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x9f, index: 0 }); // DTR/RTS
     } else {
-      console.log('Non-FTDI device detected via WebUSB; bypassing FTDI setup params.');
+      console.log('Unrecognized clone chip detected; raw connection may be unstable on mobile.');
     }
 
     state.usbEndpoint = outEndpoint;
