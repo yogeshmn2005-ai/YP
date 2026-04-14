@@ -9,7 +9,9 @@
   --bg-chassis: #e0e5ec;
   --bg-panel: #f0f2f5;
   --bg-muted: #d1d9e6;
-  --bg-screen: #2d3436;
+  --bg-screen: #d0d7de;
+  --screen-text: #2d3436;
+  --screen-text-muted: #636e72;
   --text-primary: #2d3436;
   --text-secondary: #4a5568;
   --text-muted: #636e72;
@@ -49,6 +51,8 @@
   --bg-panel: #22272e;
   --bg-muted: #14181d;
   --bg-screen: #0d1117;
+  --screen-text: #e0e5ec;
+  --screen-text-muted: #7b8794;
   --text-primary: #e0e5ec;
   --text-secondary: #a8b2d1;
   --text-muted: #7b8794;
@@ -493,14 +497,14 @@ body::before {
 }
 
 .dash-card .dash-label {
-  color: #7b8794;
+  color: var(--screen-text-muted);
 }
 
 .dash-value {
   font-family: var(--font-mono);
   font-size: 1.3rem;
   font-weight: 700;
-  color: #e0e5ec;
+  color: var(--screen-text);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -512,7 +516,7 @@ body::before {
 }
 
 .dash-value.speed-text {
-  color: #a8b2d1;
+  color: var(--screen-text-muted);
   font-size: 1rem;
 }
 
@@ -526,7 +530,7 @@ body::before {
   font-family: var(--font-mono);
   font-size: 0.65rem;
   font-weight: 600;
-  color: #7b8794;
+  color: var(--screen-text-muted);
 }
 
 /* ===== Speed Bar ===== */
@@ -1035,7 +1039,7 @@ body::before {
 .stat-label {
   font-family: var(--font-mono);
   font-size: 0.6rem;
-  color: #7b8794;
+  color: var(--screen-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -1044,7 +1048,7 @@ body::before {
   font-family: var(--font-mono);
   font-size: 1rem;
   font-weight: 700;
-  color: #e0e5ec;
+  color: var(--screen-text);
   font-variant-numeric: tabular-nums;
 }
 
