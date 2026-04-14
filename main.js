@@ -162,10 +162,19 @@ function setupEventListeners() {
   dom.btnCustom.addEventListener('click', () => switchMode('custom'));
   dom.themeToggle.addEventListener('click', toggleTheme);
 
+  // Debounce slider input to avoid flooding hardware
+  let sliderDebounceTimer = null;
+  let lastSliderValue = null;
   dom.tempSlider.addEventListener('input', (e) => {
     const temp = parseInt(e.target.value);
     dom.sliderTempDisplay.textContent = temp + '°C';
-    updateTemperature(temp, state.humidity, 'Custom Input');
+    if (sliderDebounceTimer) clearTimeout(sliderDebounceTimer);
+    sliderDebounceTimer = setTimeout(() => {
+      if (lastSliderValue !== temp) {
+        updateTemperature(temp, state.humidity, 'Custom Input');
+        lastSliderValue = temp;
+      }
+    }, 120); // 120ms debounce
   });
 
   dom.btnSerialConnect.addEventListener('click', connectHardware);
