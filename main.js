@@ -257,9 +257,9 @@ async function connectViaWebUSB() {
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0xb282 }); // 9600 baud
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0f2c, index: 0x0008 }); 
       
-      // CRITICAL FIX: Only send 0xdf (DTR/RTS HIGH). 
-      // Do NOT send 0x9f. 0x9f drives DTR logic LOW, perpetually holding the Nano in RESET state!
-      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0xdf, index: 0 }); // 8N1 + DTR High
+      // CRITICAL FIX: 0xFF completely deverts DTR and RTS (Hardware Flow Control disabled)
+      // This allows the bytes to flow out immediately instead of hanging in the pipeline!
+      await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0xFF, index: 0 }); 
     } else {
       logDebug(`Unrecognized clone chip (VID: 0x${device.vendorId.toString(16)}). Bypassing vendor init.`, 'warning');
     }
