@@ -75,6 +75,38 @@ const dom = {
   themeIconMoon: document.getElementById('themeIconMoon'),
 };
 
+// ===== Debug Panel =====
+let debugLogs = [];
+function addDebugLog(msg) {
+  const now = new Date();
+  const time = now.toLocaleTimeString('en-IN', { hour12: false });
+  debugLogs.push(`[${time}] ${msg}`);
+  if (debugLogs.length > 100) debugLogs.shift();
+  updateDebugPanel();
+}
+
+function updateDebugPanel() {
+  let panel = document.getElementById('debugPanel');
+  if (!panel) return;
+  const logElem = panel.querySelector('.debug-log');
+  if (logElem) logElem.textContent = debugLogs.join('\n');
+}
+
+function copyDebugLogs() {
+  navigator.clipboard.writeText(debugLogs.join('\n'));
+  showToast('Debug log copied!', 'success');
+}
+
+function setupDebugPanel() {
+  const panel = document.getElementById('debugPanel');
+  if (!panel) return;
+  const btn = panel.querySelector('#copyDebugBtn');
+  if (btn) btn.onclick = copyDebugLogs;
+  updateDebugPanel();
+}
+
+setupDebugPanel();
+
 // ===== Initialize =====
 function init() {
   initTheme();
@@ -289,11 +321,27 @@ function onHardwareConnected() {
 
 // Low-level write: auto-selects WebUSB or Web Serial
 async function writeToHardware(data) {
+  addDebugLog(`writeToHardware called: mode=${state.connectionMode}, data="${data.trim()}"`);
   if (state.connectionMode === 'webusb' && state.usbDevice) {
-    const encoder = new TextEncoder();
-    await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
+    try {
+      const encoder = new TextEncoder();
+      await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
+      addDebugLog('writeToHardware: transferOut success');
+    } catch (err) {
+      addDebugLog('writeToHardware: transferOut error: ' + err);
+      throw err;
+    }
   } else if (state.connectionMode === 'serial' && state.serialWriter) {
-    await state.serialWriter.write(data);
+    try {
+      await state.serialWriter.write(data);
+      addDebugLog('writeToHardware: serial write success');
+    } catch (err) {
+      addDebugLog('writeToHardware: serial write error: ' + err);
+      throw err;
+    }
+  } else {
+    addDebugLog('writeToHardware: No valid connection');
+    throw new Error('No valid hardware connection');
   }
 }
 
@@ -336,23 +384,36 @@ async function disconnectHardware() {
 }
 
 async function sendSpeedToHardware(percent) {
-  if (!state.isHardwareConnected) return;
+  addDebugLog(`sendSpeedToHardware called with percent=${percent}`);
+  if (!state.isHardwareConnected) {
+    addDebugLog('sendSpeedToHardware: Hardware not connected');
+    return;
+  }
 
   // Throttle: Only send every 100ms
   const now = Date.now();
-  if (now - state.lastSerialTime < 100) return;
+  if (now - state.lastSerialTime < 100) {
+    addDebugLog('sendSpeedToHardware: Throttled');
+    return;
+  }
 
   // Convert to 0-255 PWM
   const pwmValue = Math.round((percent / 100) * 255);
+  addDebugLog(`sendSpeedToHardware: pwmValue=${pwmValue}`);
 
   // Only send if the value actually changed
-  if (pwmValue === state.lastSentSpeed) return;
+  if (pwmValue === state.lastSentSpeed) {
+    addDebugLog('sendSpeedToHardware: Value unchanged, not sending');
+    return;
+  }
 
   try {
     await writeToHardware(pwmValue + '\n');
+    addDebugLog(`sendSpeedToHardware: Sent value ${pwmValue}`);
     state.lastSentSpeed = pwmValue;
     state.lastSerialTime = now;
   } catch (err) {
+    addDebugLog('sendSpeedToHardware: Write Error: ' + err);
     console.error('Write Error:', err);
     state.isHardwareConnected = false;
     state.connectionMode = null;
