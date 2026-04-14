@@ -70,6 +70,24 @@ const dom = {
   btnDisconnect: document.getElementById('btnDisconnect'),
   hwStatus: document.getElementById('hwStatus'),
   feelsLikeValue: document.getElementById('feelsLikeValue'),
+  debugPanel: document.getElementById('debugPanel'),
+  debugContent: document.getElementById('debugContent'),
+  btnToggleDebug: document.getElementById('btnToggleDebug'),
+  btnCloseDebug: document.getElementById('btnCloseDebug'),
+};
+
+// ===== Window Debug Logger =====
+window.logDebug = function(msg, type = 'info') {
+  console.log(`[SYS] ${msg}`);
+  if (!dom.debugContent) return;
+  
+  const line = document.createElement('div');
+  line.className = `debug-line ${type}`;
+  const time = new Date().toISOString().split('T')[1].slice(0, 8);
+  line.innerHTML = `<span class="timestamp">[${time}]</span> ${msg}`;
+  
+  dom.debugContent.appendChild(line);
+  dom.debugContent.scrollTop = dom.debugContent.scrollHeight;
 };
 
 // ===== Initialize =====
@@ -144,6 +162,9 @@ function setupEventListeners() {
 
   dom.btnSerialConnect.addEventListener('click', connectHardware);
   dom.btnDisconnect.addEventListener('click', disconnectHardware);
+  
+  dom.btnToggleDebug.addEventListener('click', () => dom.debugPanel.classList.toggle('show'));
+  dom.btnCloseDebug.addEventListener('click', () => dom.debugPanel.classList.remove('show'));
 }
 
 // ===== Hardware Communication (Auto-detect: WebUSB for Mobile, Web Serial for PC) =====
@@ -163,8 +184,10 @@ async function connectHardware() {
 
 // Mobile/Fallback: WebUSB with FTDI & CH340 protocol
 async function connectViaWebUSB() {
+  logDebug('Initiating WebUSB connection...', 'info');
   if (!('usb' in navigator)) {
-    showToast('⚠️ Browser does not support WebUSB');
+    showToast('Browser does not support WebUSB', 'warning');
+    logDebug('Error: WebUSB not supported natively', 'error');
     return;
   }
 
@@ -179,14 +202,17 @@ async function connectViaWebUSB() {
     });
 
     await device.open();
+    logDebug(`Device opened: VID=0x${device.vendorId.toString(16)} PID=0x${device.productId.toString(16)}`, 'success');
 
     if (device.configuration === null) {
       await device.selectConfiguration(1);
+      logDebug('Selected configuration 1', 'info');
     }
 
     const iface = device.configuration.interfaces[0];
     const ifaceNum = iface.interfaceNumber;
     await device.claimInterface(ifaceNum);
+    logDebug(`Claimed interface ${ifaceNum}`, 'info');
 
     let outEndpoint = null;
     for (const ep of iface.alternate.endpoints) {
@@ -196,29 +222,32 @@ async function connectViaWebUSB() {
       }
     }
     if (!outEndpoint) throw new Error('No OUT endpoint found');
+    logDebug(`Found OUT endpoint ${outEndpoint}`, 'info');
 
     // Hardware-specific Initialization (to correctly set 9600 baud rate)
     if (device.vendorId === 0x0403) {
-      // FTDI Chip Initialization
+      logDebug('Detected FTDI device. Sending init commands...', 'info');
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 }); // 9600 baud
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
     } else if (device.vendorId === 0x1A86) {
-      // CH340 Clone Chip Initialization (Required for 'Old Bootloader' Nanos)
+      logDebug('Detected CH340 Clone. Sending advanced 9600baud init...', 'info');
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0, index: 0 }); 
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0xb282 }); // 9600 baud
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0f2c, index: 0x0008 }); 
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0xdf, index: 0 }); // 8N1
       await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x9f, index: 0 }); // DTR/RTS
     } else {
-      console.log('Unrecognized clone chip detected; raw connection may be unstable on mobile.');
+      logDebug(`Unrecognized clone chip (VID: 0x${device.vendorId.toString(16)}). Bypassing vendor init.`, 'warning');
     }
 
     state.usbEndpoint = outEndpoint;
     state.connectionMode = 'webusb';
+    logDebug('WebUSB pipeline established successfully.', 'success');
     onHardwareConnected();
   } catch (err) {
+    logDebug(`WebUSB Handshake Error: ${err.message}`, 'error');
     console.error('WebUSB Error:', err);
     showToast('Hardware connection failed', 'warning');
   }
