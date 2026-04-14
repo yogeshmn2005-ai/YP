@@ -201,6 +201,7 @@ async function connectViaWebUSB() {
     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
 
+    state.usbDevice = device;
     state.usbEndpoint = outEndpoint;
     state.connectionMode = 'webusb';
     onHardwareConnected();
