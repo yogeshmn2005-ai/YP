@@ -179,9 +179,47 @@ function isMobileDevice() {
 
 async function connectHardware() {
   if (isMobileDevice()) {
-    await connectViaWebUSB();
+    await connectViaWebUSBUniversal();
   } else {
     await connectViaWebSerial();
+  }
+}
+
+// Universal WebUSB connection for mobile (CH340/FTDI/Arduino)
+async function connectViaWebUSBUniversal() {
+  if (!('usb' in navigator)) {
+    showToast('Browser does not support WebUSB', 'warning');
+    return;
+  }
+  try {
+    const device = await navigator.usb.requestDevice({ filters: [] });
+    await device.open();
+    if (device.configuration === null) await device.selectConfiguration(1);
+    // Find first interface with endpoints
+    let ifaceNum = null, outEndpoint = null;
+    for (const iface of device.configuration.interfaces) {
+      for (const alt of iface.alternates) {
+        if (alt.endpoints && alt.endpoints.length) {
+          ifaceNum = iface.interfaceNumber;
+          await device.claimInterface(ifaceNum);
+          for (const ep of alt.endpoints) {
+            if (ep.direction === 'out') outEndpoint = ep.endpointNumber;
+          }
+          break;
+        }
+      }
+    }
+    if (!outEndpoint) throw new Error('No OUT endpoint found');
+    state.usbDevice = device;
+    state.usbEndpoint = outEndpoint;
+    state.connectionMode = 'webusb';
+    // Prime the connection by sending a dummy value twice
+    await writeToHardware('0\n');
+    await writeToHardware('0\n');
+    onHardwareConnected();
+  } catch (err) {
+    console.error('WebUSB Error:', err);
+    showToast('Hardware connection failed', 'warning');
   }
 }
 
@@ -290,26 +328,15 @@ function onHardwareConnected() {
 
 // Low-level write: auto-selects WebUSB or Web Serial
 async function writeToHardware(data) {
-  addDebugLog(`writeToHardware called: mode=${state.connectionMode}, data="${data.trim()}"`);
+  // Always send with newline for compatibility
+  let sendData = data;
+  if (!/\n$/.test(sendData)) sendData += '\n';
   if (state.connectionMode === 'webusb' && state.usbDevice) {
-    try {
-      const encoder = new TextEncoder();
-      await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
-      addDebugLog('writeToHardware: transferOut success');
-    } catch (err) {
-      addDebugLog('writeToHardware: transferOut error: ' + err);
-      throw err;
-    }
+    const encoder = new TextEncoder();
+    await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(sendData));
   } else if (state.connectionMode === 'serial' && state.serialWriter) {
-    try {
-      await state.serialWriter.write(data);
-      addDebugLog('writeToHardware: serial write success');
-    } catch (err) {
-      addDebugLog('writeToHardware: serial write error: ' + err);
-      throw err;
-    }
+    await state.serialWriter.write(sendData);
   } else {
-    addDebugLog('writeToHardware: No valid connection');
     throw new Error('No valid hardware connection');
   }
 }

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WebUSB Raw Test</title>
+  <style>
+    body { font-family: monospace; background: #222; color: #eee; padding: 2em; }
+    #log { background: #111; padding: 1em; border-radius: 8px; min-height: 120px; margin-bottom: 1em; }
+    input, button { font-size: 1em; }
+  </style>
+</head>
+<body>
+  <h2>WebUSB Raw Test (CH340/Arduino)</h2>
+  <div id="log"></div>
+  <button id="connectBtn">Connect USB Device</button>
+  <br><br>
+  <input id="sendInput" type="text" placeholder="Type value (e.g. 128)" />
+  <button id="sendBtn">Send</button>
+  <label><input type="checkbox" id="newlineChk"> Append Newline</label>
+  <script>
+    let device = null;
+    let outEndpoint = null;
+    let ifaceNum = null;
+    const log = (...args) => {
+      document.getElementById('log').textContent += args.join(' ') + '\n';
+    };
+    document.getElementById('connectBtn').onclick = async () => {
+      try {
+        device = await navigator.usb.requestDevice({ filters: [] });
+        await device.open();
+        if (device.configuration === null) await device.selectConfiguration(1);
+        // Find first interface with endpoints
+        for (const iface of device.configuration.interfaces) {
+          for (const alt of iface.alternates) {
+            if (alt.endpoints && alt.endpoints.length) {
+              ifaceNum = iface.interfaceNumber;
+              await device.claimInterface(ifaceNum);
+              for (const ep of alt.endpoints) {
+                if (ep.direction === 'out') outEndpoint = ep.endpointNumber;
+              }
+              log('Interface:', ifaceNum, 'OUT endpoint:', outEndpoint);
+              break;
+            }
+          }
+        }
+        log('Device opened:', device.productName || device.serialNumber || 'Unknown');
+      } catch (e) {
+        log('Connect error:', e);
+      }
+    };
+    document.getElementById('sendBtn').onclick = async () => {
+      if (!device || !outEndpoint) return log('Not connected');
+      let val = document.getElementById('sendInput').value;
+      if (document.getElementById('newlineChk').checked) val += '\n';
+      const encoder = new TextEncoder();
+      try {
+        await device.transferOut(outEndpoint, encoder.encode(val));
+        log('Sent:', JSON.stringify(val));
+      } catch (e) {
+        log('Send error:', e);
+      }
+    };
+  </script>
+</body>
+</html>
