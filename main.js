@@ -1,5 +1,4 @@
 import './style.css';
-import { serial as serialPolyfill } from 'web-serial-polyfill';
 
 // ===== Configuration =====
 // Using Open-Meteo API — completely free, no API key required
@@ -22,7 +21,9 @@ const state = {
   serialPort: null,
   serialWriter: null,
   isHardwareConnected: false,
-  connectionMode: null,      // 'serial' | 'polyfill'
+  connectionMode: null,      // 'serial' | 'webusb'
+  usbDevice: null,
+  usbEndpoint: null,
   lastSentSpeed: -1,
   lastSerialTime: 0,
 };
@@ -170,45 +171,96 @@ function setupEventListeners() {
   dom.btnDisconnect.addEventListener('click', disconnectHardware);
 }
 
-// ===== Hardware Communication =====
-async function connectHardware() {
-  // Use native Web Serial API on desktop, fallback to WebUSB polyfill on Android
-  let serialApi = navigator.serial;
-  let mode = 'serial';
-  
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  if (isMobile || !serialApi) {
-    serialApi = serialPolyfill;
-    mode = 'polyfill';
-  }
+// ===== Hardware Communication (Auto-detect: WebUSB for Mobile, Web Serial for PC) =====
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
 
-  if (!serialApi) {
-    showToast('Browser does not support Serial connections', 'warning');
+async function connectHardware() {
+  if (isMobileDevice()) {
+    await connectViaWebUSB();
+  } else {
+    await connectViaWebSerial();
+  }
+}
+
+// Mobile: WebUSB with FTDI protocol
+async function connectViaWebUSB() {
+  if (!('usb' in navigator)) {
+    showToast('Browser does not support WebUSB', 'warning');
     return;
   }
 
   try {
-    const port = await serialApi.requestPort({
+    const device = await navigator.usb.requestDevice({
       filters: [
-        { usbVendorId: 0x0403 },   // FTDI
-        { usbVendorId: 0x1A86 },   // CH340
-        { usbVendorId: 0x2341 },   // Arduino (CDC-ACM)
-        { usbVendorId: 0x10C4 },   // CP2102
+        { vendorId: 0x0403 },  // FTDI
+        { vendorId: 0x1A86 },  // CH340
+        { vendorId: 0x2341 },  // Arduino
+        { vendorId: 0x10C4 },  // CP2102
       ]
     });
-    
-    // Polyfill supports standard Web Serial API!
-    await port.open({ baudRate: 9600 });
-    
-    const encoder = new TextEncoderStream();
-    encoder.readable.pipeTo(port.writable);
-    
-    state.serialPort = port;
-    state.serialWriter = encoder.writable.getWriter();
-    state.connectionMode = mode;
+
+    await device.open();
+
+    if (device.configuration === null) {
+      await device.selectConfiguration(1);
+    }
+
+    const iface = device.configuration.interfaces[0];
+    const ifaceNum = iface.interfaceNumber;
+    await device.claimInterface(ifaceNum);
+
+    let outEndpoint = null;
+    for (const ep of iface.alternate.endpoints) {
+      if (ep.direction === 'out') {
+        outEndpoint = ep.endpointNumber;
+        break;
+      }
+    }
+    if (!outEndpoint) throw new Error('No OUT endpoint found');
+
+    // FTDI initialization
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
+
+    state.usbDevice = device;
+    state.usbEndpoint = outEndpoint;
+    state.connectionMode = 'webusb';
     onHardwareConnected();
   } catch (err) {
-    console.error('Hardware Connection Error:', err);
+    console.error('WebUSB Error:', err);
+    showToast('Hardware connection failed', 'warning');
+  }
+}
+
+// PC: Web Serial
+async function connectViaWebSerial() {
+  if (!('serial' in navigator)) {
+    showToast('Browser does not support Web Serial', 'warning');
+    return;
+  }
+
+  try {
+    state.serialPort = await navigator.serial.requestPort({
+      filters: [
+        { usbVendorId: 0x0403 },
+        { usbVendorId: 0x1A86 },
+        { usbVendorId: 0x2341 },
+        { usbVendorId: 0x10C4 },
+      ]
+    });
+    await state.serialPort.open({ baudRate: 9600 });
+
+    const encoder = new TextEncoderStream();
+    encoder.readable.pipeTo(state.serialPort.writable);
+    state.serialWriter = encoder.writable.getWriter();
+    state.connectionMode = 'serial';
+    onHardwareConnected();
+  } catch (err) {
+    console.error('Serial Error:', err);
     showToast('Hardware connection failed', 'warning');
   }
 }
@@ -235,9 +287,12 @@ function onHardwareConnected() {
   }, 5000);
 }
 
-// Low-level write
+// Low-level write: auto-selects WebUSB or Web Serial
 async function writeToHardware(data) {
-  if (state.serialWriter) {
+  if (state.connectionMode === 'webusb' && state.usbDevice) {
+    const encoder = new TextEncoder();
+    await state.usbDevice.transferOut(state.usbEndpoint, encoder.encode(data));
+  } else if (state.connectionMode === 'serial' && state.serialWriter) {
     await state.serialWriter.write(data);
   }
 }
@@ -256,13 +311,15 @@ async function disconnectHardware() {
     } catch (e) {}
   }
   
-  if (state.serialWriter) {
-    try { state.serialWriter.releaseLock(); } catch(e) {}
-  }
   if (state.serialPort) {
     try { await state.serialPort.close(); } catch(e) {}
     state.serialPort = null;
     state.serialWriter = null;
+  }
+  
+  if (state.usbDevice) {
+    try { await state.usbDevice.close(); } catch(e) {}
+    state.usbDevice = null;
   }
   
   state.isHardwareConnected = false;
