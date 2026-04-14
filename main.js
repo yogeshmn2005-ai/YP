@@ -3,26 +3,7 @@ import './style.css';
 // ===== Configuration =====
 // Using Open-Meteo API — completely free, no API key required
 const WEATHER_BASE = 'https://api.open-meteo.com/v1/forecast';
-const GEOCODE_BASE = 'https://nominatim.openstreetmap.org/reverse';
-
-async function pollWebUsbInEndpoint() {
-  if (!state.isHardwareConnected || state.connectionMode !== 'webusb' || !state.usbDevice) return;
-  try {
-    const result = await state.usbDevice.transferIn(state.usbEndpointIn, 64);
-    if (result && result.data && result.data.byteLength > 0) {
-      const decoded = new TextDecoder().decode(result.data);
-      // logDebug(`RX: ${decoded.trim()}`); // Optional verbose logging
-    }
-  } catch (e) {
-    if (state.isHardwareConnected) logDebug(`RX Poll Error: ${e.message}`, 'warning');
-  }
-  // Schedule next read immediately
-  if (state.isHardwareConnected) {
-    setTimeout(pollWebUsbInEndpoint, 10);
-  }
-}
-
-// ===== State =====
+// Polling loop removed to prevent Android OS pipe blocking
 const state = {
   mode: 'location',       // 'location' | 'custom'
   temperature: null,
@@ -221,6 +202,10 @@ async function connectViaWebUSB() {
     await device.open();
     logDebug(`Device opened: VID=0x${device.vendorId.toString(16)} PID=0x${device.productId.toString(16)}`, 'success');
 
+    // Clean out any crashed hardware flags from previous WebUSB attempts
+    await device.reset();
+    logDebug('Hardware physically reset to clear pipeline.', 'info');
+
     if (device.configuration === null) {
       await device.selectConfiguration(1);
       logDebug('Selected configuration 1', 'info');
@@ -269,13 +254,9 @@ async function connectViaWebUSB() {
     state.connectionMode = 'webusb';
     logDebug('WebUSB pipeline established successfully.', 'success');
     onHardwareConnected();
-
-    // CH340 CRITICAL FIX: We MUST constantly drain the IN endpoint buffer.
-    // If the Arduino sends any serial data (even just initialization text), the CH340 
-    // will fill its 64-byte IN buffer and entirely lock up all OUT communications (stalling).
-    if (inEndpoint) {
-      pollWebUsbInEndpoint();
-    }
+    
+    // IN Polling intentionally omitted. Attempting to await transferIn 
+    // permanently locks the synchronous USB stack queue on Android!
     
   } catch (err) {
     logDebug(`WebUSB Handshake Error: ${err.message}`, 'error');
