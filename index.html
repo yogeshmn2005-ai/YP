@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="SmartBreeze - AI-powered temperature-based fan speed controller with physical hardware integration via Arduino and Web Serial API." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2'%3E%3Cpath d='M12 12c-3-2.5-5-4-5-6a5 5 0 0 1 10 0c0 2-2 3.5-5 6z'/%3E%3Cpath d='M12 12c2.5 3 4 5 6 5a5 5 0 0 0 0-10c-2 0-3.5 2-6 5z'/%3E%3Cpath d='M12 12c-2.5-3-4-5-6-5a5 5 0 0 0 0 10c2 0 3.5-2 6-5z'/%3E%3Cpath d='M12 12c3 2.5 5 4 5 6a5 5 0 0 1-10 0c0-2 2-3.5 5-6z'/%3E%3C/svg%3E" />
   <title>SmartBreeze | AI-Powered Fan Controller</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -143,13 +144,13 @@
           </h2>
           <span class="card-badge badge-hw" id="hwStatus">Disconnected</span>
         </div>
-        <div class="hardware-content" style="display: flex; gap: 1rem; width: 100%;">
-          <button id="btnSerialConnect" class="btn-hardware" style="flex: 1;">
+        <div class="hardware-content">
+          <button id="btnSerialConnect" class="btn-hardware">
             <i data-lucide="plug" stroke-width="2" width="18" height="18"></i>
             <span>Connect Fan</span>
           </button>
           
-          <button id="btnDisconnect" class="btn-hardware btn-hardware-danger hidden" style="flex: 1;">
+          <button id="btnDisconnect" class="btn-hardware btn-hardware-danger hidden">
             <i data-lucide="power-off" stroke-width="2" width="18" height="18"></i>
             <span>Disconnect</span>
           </button>
@@ -171,7 +172,7 @@
               <span class="temp-value" id="tempValue">--</span>
               <span class="temp-unit">°C</span>
             </div>
-            <div style="font-size: 1.1rem; color: var(--accent-secondary); margin-top: -0.25rem; margin-bottom: 0.75rem; font-weight: 600;">
+            <div class="feels-like">
               Feels like <span id="feelsLikeValue">--</span>°C
             </div>
             <div class="temp-meta">
@@ -243,7 +244,7 @@
             <div class="prediction-item">
               <span class="prediction-label">Predicted Trend</span>
               <span class="prediction-value" id="predTrend">
-                <span class="trend-icon" id="trendIcon">→</span>
+                <span class="trend-icon" id="trendIcon" style="display:inline-flex;align-items:center;"><i data-lucide="minus" style="color: #64748b; width: 16px; height: 16px;"></i></span>
                 Collecting data...
               </span>
             </div>

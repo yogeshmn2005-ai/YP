@@ -12,7 +12,7 @@ const state = {
   humidity: null,
   weatherCondition: '',
   cityName: '',
-  fanSpeed: 0,            // 0-5
+  fanSpeed: 0,            // unused legacy, kept for compat
   fanSpeedPercent: 0,     // 0-100
   tempHistory: [],        // { time, temp }
   readingCount: 0,
@@ -93,6 +93,15 @@ function init() {
 
   // Render initial icons
   lucide.createIcons();
+
+  // Redraw chart on resize (debounced)
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (state.tempHistory.length >= 2) drawChart();
+    }, 250);
+  });
 }
 
 // ===== Background Particles =====
@@ -139,7 +148,7 @@ function setupEventListeners() {
   dom.tempSlider.addEventListener('input', (e) => {
     const temp = parseInt(e.target.value);
     dom.sliderTempDisplay.textContent = temp + '°C';
-    updateTemperature(temp, null, 'Custom Input');
+    updateTemperature(temp, state.humidity, 'Custom Input');
   });
 
   dom.btnSerialConnect.addEventListener('click', connectHardware);
@@ -162,7 +171,7 @@ async function connectHardware() {
 // Mobile: WebUSB with FTDI protocol
 async function connectViaWebUSB() {
   if (!('usb' in navigator)) {
-    showToast('⚠️ Browser does not support WebUSB');
+    showToast('Browser does not support WebUSB', 'warning');
     return;
   }
 
@@ -298,6 +307,7 @@ async function disconnectHardware() {
   
   state.isHardwareConnected = false;
   state.connectionMode = null;
+  state.lastSentSpeed = -1;
   
   dom.btnDisconnect.classList.add('hidden');
   dom.btnSerialConnect.classList.remove('hidden', 'connected');
@@ -327,10 +337,14 @@ async function sendSpeedToHardware(percent) {
   } catch (err) {
     console.error('Write Error:', err);
     state.isHardwareConnected = false;
+    state.connectionMode = null;
+    state.lastSentSpeed = -1;
+    dom.btnDisconnect.classList.add('hidden');
+    dom.btnSerialConnect.classList.remove('hidden');
     dom.btnSerialConnect.querySelector('span').textContent = 'Reconnect Fan';
-    dom.btnSerialConnect.classList.remove('connected');
     dom.hwStatus.textContent = 'Disconnected';
     dom.hwStatus.classList.remove('connected');
+    showToast('Hardware disconnected unexpectedly', 'warning');
   }
 }
 
@@ -346,7 +360,7 @@ function switchMode(mode) {
     dom.customSliderContainer.classList.remove('hidden');
     dom.tempSource.textContent = 'Custom';
     const temp = parseInt(dom.tempSlider.value);
-    updateTemperature(temp, null, 'Custom Input');
+    updateTemperature(temp, state.humidity, 'Custom Input');
     showToast('Custom mode activated', 'settings');
     dom.mapFrame.classList.add('hidden');
     dom.mapPlaceholder.querySelector('span').textContent = 'Map Disabled';
@@ -619,7 +633,8 @@ function calculateFanSpeed(temp, humidity) {
 function runPrediction() {
   const data = state.tempHistory;
   if (data.length < 3) {
-    dom.predTrend.innerHTML = '<span class="trend-icon">⏳</span> Collecting data...';
+    dom.predTrend.innerHTML = '<span class="trend-icon" style="display:inline-flex;align-items:center;"><i data-lucide="loader" style="color: #94a3b8; width: 16px; height: 16px;"></i></span> Collecting data...';
+    lucide.createIcons();
     dom.predTemp.textContent = '--°C';
     dom.predConfidence.textContent = '--%';
     dom.confidenceFill.style.width = '0%';
