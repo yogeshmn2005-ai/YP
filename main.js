@@ -90,6 +90,9 @@ function init() {
       writeToHardware('0\n').catch(() => {});
     }
   });
+
+  // Render initial icons
+  lucide.createIcons();
 }
 
 // ===== Background Particles =====
@@ -203,14 +206,14 @@ async function connectViaWebUSB() {
     onHardwareConnected();
   } catch (err) {
     console.error('WebUSB Error:', err);
-    showToast('⚠️ Hardware connection failed');
+    showToast('Hardware connection failed', 'warning');
   }
 }
 
 // PC: Web Serial
 async function connectViaWebSerial() {
   if (!('serial' in navigator)) {
-    showToast('⚠️ Browser does not support Web Serial');
+    showToast('Browser does not support Web Serial', 'warning');
     return;
   }
 
@@ -232,7 +235,7 @@ async function connectViaWebSerial() {
     onHardwareConnected();
   } catch (err) {
     console.error('Serial Error:', err);
-    showToast('⚠️ Hardware connection failed');
+    showToast('Hardware connection failed', 'warning');
   }
 }
 
@@ -244,7 +247,7 @@ function onHardwareConnected() {
   
   dom.hwStatus.textContent = 'Connected';
   dom.hwStatus.classList.add('connected');
-  showToast('🔌 Physical Fan Connected!');
+  showToast('Physical Fan Connected!', 'success');
 
   sendSpeedToHardware(state.fanSpeedPercent);
 
@@ -343,14 +346,14 @@ function switchMode(mode) {
     dom.tempSource.textContent = 'Custom';
     const temp = parseInt(dom.tempSlider.value);
     updateTemperature(temp, null, 'Custom Input');
-    showToast('🎛️ Custom mode activated');
+    showToast('Custom mode activated', 'settings');
     dom.mapFrame.classList.add('hidden');
     dom.mapPlaceholder.querySelector('span').textContent = 'Map Disabled';
   } else {
     dom.customSliderContainer.classList.add('hidden');
     dom.tempSource.textContent = 'Location';
     fetchLocationTemperature();
-    showToast('📍 Location mode activated');
+    showToast('Location mode activated', 'location');
     if (state.lastLat && state.lastLon) {
       dom.mapFrame.classList.remove('hidden');
     }
@@ -360,7 +363,7 @@ function switchMode(mode) {
 // ===== Location & Weather Fetch =====
 function fetchLocationTemperature() {
   if (!navigator.geolocation) {
-    showToast('⚠️ Geolocation not supported');
+    showToast('Geolocation not supported', 'warning');
     switchMode('custom');
     return;
   }
@@ -376,7 +379,7 @@ function fetchLocationTemperature() {
   navigator.geolocation.getCurrentPosition(
     async (position) => {
       const { latitude, longitude, accuracy } = position.coords;
-      console.log(`📍 Geolocation: lat=${latitude}, lon=${longitude}, accuracy=${Math.round(accuracy)}m`);
+      console.log(`Geolocation: lat=${latitude}, lon=${longitude}, accuracy=${Math.round(accuracy)}m`);
       
       // Store coords and update Map Iframe
       state.lastLat = latitude;
@@ -425,7 +428,7 @@ function fetchLocationTemperature() {
           if (geoRes.ok) {
             const geoData = await geoRes.json();
             const addr = geoData.address || {};
-            console.log('📍 Full address from Nominatim:', JSON.stringify(addr, null, 2));
+            console.log('Full address from Nominatim:', JSON.stringify(addr, null, 2));
             // Pick name detail based on geolocation accuracy
             if (accuracy < 5000) {
               // Good accuracy (<5km): show road + local area + city
@@ -462,11 +465,11 @@ function fetchLocationTemperature() {
 
         if (state.mode === 'location') {
           updateTemperature(temp, humidity, condition);
-          showToast(`🌡️ ${temp}°C in ${city} (±${Math.round(accuracy)}m)`);
+          showToast(`${temp}°C in ${city} (±${Math.round(accuracy)}m)`, 'temp');
         }
       } catch (err) {
         console.error('Weather API error:', err);
-        showToast('⚠️ Could not fetch weather data. Try custom mode.');
+        showToast('Could not fetch weather data. Try custom mode.', 'warning');
       }
     },
     (err) => {
@@ -478,7 +481,7 @@ function fetchLocationTemperature() {
         </svg>
         Location denied
       `;
-      showToast('📍 Location denied — switching to custom mode');
+      showToast('Location denied — switching to custom mode', 'warning');
       switchMode('custom');
     },
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -670,20 +673,21 @@ function runPrediction() {
   let trendText, trendIcon;
   if (m > 0.1) {
     trendText = 'Rising';
-    trendIcon = '📈';
+    trendIcon = '<i data-lucide="trending-up" style="color: #ef4444; width: 16px; height: 16px;"></i>';
   } else if (m < -0.1) {
     trendText = 'Falling';
-    trendIcon = '📉';
+    trendIcon = '<i data-lucide="trending-down" style="color: #3b82f6; width: 16px; height: 16px;"></i>';
   } else {
     trendText = 'Stable';
-    trendIcon = '➡️';
+    trendIcon = '<i data-lucide="minus" style="color: #64748b; width: 16px; height: 16px;"></i>';
   }
 
   // Update DOM
-  dom.predTrend.innerHTML = `<span class="trend-icon">${trendIcon}</span> ${trendText}`;
+  dom.predTrend.innerHTML = `<span class="trend-icon" style="display:inline-flex;align-items:center;">${trendIcon}</span> ${trendText}`;
   dom.predTemp.textContent = predictedTemp + '°C';
   dom.predConfidence.textContent = confidence + '%';
   dom.confidenceFill.style.width = confidence + '%';
+  lucide.createIcons();
 }
 
 // ===== Chart Drawing =====
@@ -802,9 +806,32 @@ function drawChart() {
 
 // ===== Toast Notification =====
 let toastTimer = null;
-function showToast(message) {
+function showToast(message, type = 'info') {
+  let iconHtml = '';
+  switch (type) {
+    case 'warning':
+      iconHtml = `<i data-lucide="alert-triangle" style="color: #f59e0b; width: 18px; height: 18px;"></i>`;
+      break;
+    case 'location':
+      iconHtml = `<i data-lucide="map-pin" style="color: #3b82f6; width: 18px; height: 18px;"></i>`;
+      break;
+    case 'temp':
+      iconHtml = `<i data-lucide="thermometer" style="color: #ef4444; width: 18px; height: 18px;"></i>`;
+      break;
+    case 'settings':
+      iconHtml = `<i data-lucide="sliders-horizontal" style="color: #8b5cf6; width: 18px; height: 18px;"></i>`;
+      break;
+    case 'success':
+      iconHtml = `<i data-lucide="check-circle" style="color: #10b981; width: 18px; height: 18px;"></i>`;
+      break;
+    default:
+      iconHtml = `<i data-lucide="info" style="color: #3b82f6; width: 18px; height: 18px;"></i>`;
+  }
+  dom.toast.querySelector('.toast-icon').innerHTML = iconHtml;
   dom.toastMessage.textContent = message;
   dom.toast.classList.add('show');
+  lucide.createIcons();
+  
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     dom.toast.classList.remove('show');
