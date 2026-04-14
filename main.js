@@ -65,19 +65,16 @@ const dom = {
   statUptime: document.getElementById('statUptime'),
   toast: document.getElementById('toast'),
   toastMessage: document.getElementById('toastMessage'),
+  bgParticles: document.getElementById('bgParticles'),
   btnSerialConnect: document.getElementById('btnSerialConnect'),
   btnDisconnect: document.getElementById('btnDisconnect'),
   hwStatus: document.getElementById('hwStatus'),
-  hwLed: document.getElementById('hwLed'),
   feelsLikeValue: document.getElementById('feelsLikeValue'),
-  themeToggle: document.getElementById('themeToggle'),
-  themeIconSun: document.getElementById('themeIconSun'),
-  themeIconMoon: document.getElementById('themeIconMoon'),
 };
 
 // ===== Initialize =====
 function init() {
-  initTheme();
+  createParticles();
   updateClock();
   setInterval(updateClock, 1000);
   setInterval(updateUptime, 60000);
@@ -85,7 +82,7 @@ function init() {
   fetchLocationTemperature();
   setInterval(() => {
     if (state.mode === 'location') fetchLocationTemperature();
-  }, 60000);
+  }, 60000); // refresh every minute
 
   // Stop physical fan when page is closed
   window.addEventListener('beforeunload', () => {
@@ -107,31 +104,19 @@ function init() {
   });
 }
 
-// ===== Dark Mode Toggle =====
-function initTheme() {
-  const saved = localStorage.getItem('smartbreeze-theme');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme = saved || (prefersDark ? 'dark' : 'light');
-  applyTheme(theme);
-}
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  if (theme === 'dark') {
-    dom.themeIconSun.classList.add('hidden');
-    dom.themeIconMoon.classList.remove('hidden');
-  } else {
-    dom.themeIconSun.classList.remove('hidden');
-    dom.themeIconMoon.classList.add('hidden');
+// ===== Background Particles =====
+function createParticles() {
+  for (let i = 0; i < 30; i++) {
+    const particle = document.createElement('div');
+    particle.classList.add('particle');
+    particle.style.left = Math.random() * 100 + '%';
+    particle.style.top = (60 + Math.random() * 40) + '%';
+    particle.style.animationDelay = Math.random() * 8 + 's';
+    particle.style.animationDuration = (6 + Math.random() * 6) + 's';
+    const colors = ['#6366f1', '#06b6d4', '#8b5cf6', '#10b981'];
+    particle.style.background = colors[Math.floor(Math.random() * colors.length)];
+    dom.bgParticles.appendChild(particle);
   }
-  localStorage.setItem('smartbreeze-theme', theme);
-}
-
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'light';
-  applyTheme(current === 'dark' ? 'light' : 'dark');
-  // Redraw chart with new theme colors
-  if (state.tempHistory.length >= 2) drawChart();
 }
 
 // ===== Clock =====
@@ -159,7 +144,6 @@ function updateUptime() {
 function setupEventListeners() {
   dom.btnLocation.addEventListener('click', () => switchMode('location'));
   dom.btnCustom.addEventListener('click', () => switchMode('custom'));
-  dom.themeToggle.addEventListener('click', toggleTheme);
 
   dom.tempSlider.addEventListener('input', (e) => {
     const temp = parseInt(e.target.value);
@@ -271,9 +255,8 @@ function onHardwareConnected() {
   dom.btnSerialConnect.classList.add('hidden');
   dom.btnDisconnect.classList.remove('hidden');
   
-  dom.hwStatus.textContent = 'ONLINE';
+  dom.hwStatus.textContent = 'Connected';
   dom.hwStatus.classList.add('connected');
-  dom.hwLed.classList.add('connected');
   showToast('Physical Fan Connected!', 'success');
 
   sendSpeedToHardware(state.fanSpeedPercent);
@@ -329,9 +312,8 @@ async function disconnectHardware() {
   dom.btnDisconnect.classList.add('hidden');
   dom.btnSerialConnect.classList.remove('hidden', 'connected');
   
-  dom.hwStatus.textContent = 'OFFLINE';
+  dom.hwStatus.textContent = 'Disconnected';
   dom.hwStatus.classList.remove('connected');
-  dom.hwLed.classList.remove('connected');
   showToast('Hardware disconnected');
 }
 
@@ -360,9 +342,8 @@ async function sendSpeedToHardware(percent) {
     dom.btnDisconnect.classList.add('hidden');
     dom.btnSerialConnect.classList.remove('hidden');
     dom.btnSerialConnect.querySelector('span').textContent = 'Reconnect Fan';
-    dom.hwStatus.textContent = 'OFFLINE';
+    dom.hwStatus.textContent = 'Disconnected';
     dom.hwStatus.classList.remove('connected');
-    dom.hwLed.classList.remove('connected');
     showToast('Hardware disconnected unexpectedly', 'warning');
   }
 }
@@ -708,13 +689,13 @@ function runPrediction() {
   let trendText, trendIcon;
   if (m > 0.1) {
     trendText = 'Rising';
-    trendIcon = '<i data-lucide="trending-up" style="color: var(--accent); width: 16px; height: 16px;"></i>';
+    trendIcon = '<i data-lucide="trending-up" style="color: #ef4444; width: 16px; height: 16px;"></i>';
   } else if (m < -0.1) {
     trendText = 'Falling';
-    trendIcon = '<i data-lucide="trending-down" style="color: var(--success); width: 16px; height: 16px;"></i>';
+    trendIcon = '<i data-lucide="trending-down" style="color: #3b82f6; width: 16px; height: 16px;"></i>';
   } else {
     trendText = 'Stable';
-    trendIcon = '<i data-lucide="minus" style="color: var(--text-muted); width: 16px; height: 16px;"></i>';
+    trendIcon = '<i data-lucide="minus" style="color: #64748b; width: 16px; height: 16px;"></i>';
   }
 
   // Update DOM
@@ -735,11 +716,6 @@ function drawChart() {
   canvas.height = canvas.offsetHeight * dpr;
   ctx.scale(dpr, dpr);
 
-  const styleRoot = getComputedStyle(document.documentElement);
-  const colorAccent = styleRoot.getPropertyValue('--accent').trim() || '#ff4757';
-  const colorMuted = styleRoot.getPropertyValue('--text-muted').trim() || '#7b8794';
-  const colorScreen = styleRoot.getPropertyValue('--bg-screen').trim() || '#2d3436';
-
   const w = canvas.offsetWidth;
   const h = canvas.offsetHeight;
   const pad = { top: 20, right: 15, bottom: 25, left: 40 };
@@ -748,8 +724,8 @@ function drawChart() {
 
   const data = state.tempHistory;
   if (data.length < 2) {
-    ctx.fillStyle = colorMuted;
-    ctx.font = '12px var(--font-sans), sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('Waiting for more data points...', w / 2, h / 2);
     return;
@@ -764,7 +740,7 @@ function drawChart() {
   const chartH = h - pad.top - pad.bottom;
 
   // Grid lines
-  ctx.strokeStyle = 'rgba(123, 135, 148, 0.15)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.1)';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (chartH / 4) * i;
@@ -775,8 +751,8 @@ function drawChart() {
 
     // Y-axis labels
     const tempLabel = Math.round(maxT - (rangeT / 4) * i);
-    ctx.fillStyle = colorMuted;
-    ctx.font = '10px var(--font-mono), monospace';
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px Inter, sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText(tempLabel + '°', pad.left - 8, y + 4);
   }
@@ -789,8 +765,8 @@ function drawChart() {
 
   // Area fill
   const gradient = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom);
-  gradient.addColorStop(0, 'rgba(255, 71, 87, 0.3)');
-  gradient.addColorStop(1, 'rgba(255, 71, 87, 0.02)');
+  gradient.addColorStop(0, 'rgba(99, 102, 241, 0.3)');
+  gradient.addColorStop(1, 'rgba(99, 102, 241, 0.02)');
 
   ctx.beginPath();
   ctx.moveTo(points[0].x, h - pad.bottom);
@@ -803,6 +779,10 @@ function drawChart() {
   ctx.fill();
 
   // Line
+  const lineGradient = ctx.createLinearGradient(pad.left, 0, w - pad.right, 0);
+  lineGradient.addColorStop(0, '#6366f1');
+  lineGradient.addColorStop(1, '#06b6d4');
+
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
   for (let i = 1; i < points.length; i++) {
@@ -811,7 +791,7 @@ function drawChart() {
     ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, xc, yc);
   }
   ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-  ctx.strokeStyle = colorAccent;
+  ctx.strokeStyle = lineGradient;
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
@@ -819,10 +799,10 @@ function drawChart() {
   for (let i = 0; i < points.length; i++) {
     ctx.beginPath();
     ctx.arc(points[i].x, points[i].y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = colorAccent;
+    ctx.fillStyle = i === points.length - 1 ? '#06b6d4' : '#6366f1';
     ctx.fill();
-    ctx.strokeStyle = colorScreen;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#0a0e1a';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 
@@ -830,12 +810,12 @@ function drawChart() {
   const lastP = points[points.length - 1];
   ctx.beginPath();
   ctx.arc(lastP.x, lastP.y, 6, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255, 71, 87, 0.3)';
+  ctx.fillStyle = 'rgba(6, 182, 212, 0.3)';
   ctx.fill();
 
   // X-axis label
-  ctx.fillStyle = colorMuted;
-  ctx.font = '10px var(--font-sans), sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '10px Inter, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('Temperature History', w / 2, h - 4);
 }
@@ -846,22 +826,22 @@ function showToast(message, type = 'info') {
   let iconHtml = '';
   switch (type) {
     case 'warning':
-      iconHtml = `<i data-lucide="alert-triangle" style="color: var(--warning); width: 18px; height: 18px;"></i>`;
+      iconHtml = `<i data-lucide="alert-triangle" style="color: #f59e0b; width: 18px; height: 18px;"></i>`;
       break;
     case 'location':
-      iconHtml = `<i data-lucide="map-pin" style="color: var(--accent); width: 18px; height: 18px;"></i>`;
+      iconHtml = `<i data-lucide="map-pin" style="color: #3b82f6; width: 18px; height: 18px;"></i>`;
       break;
     case 'temp':
-      iconHtml = `<i data-lucide="thermometer" style="color: var(--accent); width: 18px; height: 18px;"></i>`;
+      iconHtml = `<i data-lucide="thermometer" style="color: #ef4444; width: 18px; height: 18px;"></i>`;
       break;
     case 'settings':
-      iconHtml = `<i data-lucide="sliders-horizontal" style="color: var(--text-primary); width: 18px; height: 18px;"></i>`;
+      iconHtml = `<i data-lucide="sliders-horizontal" style="color: #8b5cf6; width: 18px; height: 18px;"></i>`;
       break;
     case 'success':
-      iconHtml = `<i data-lucide="check-circle" style="color: var(--success); width: 18px; height: 18px;"></i>`;
+      iconHtml = `<i data-lucide="check-circle" style="color: #10b981; width: 18px; height: 18px;"></i>`;
       break;
     default:
-      iconHtml = `<i data-lucide="info" style="color: var(--text-secondary); width: 18px; height: 18px;"></i>`;
+      iconHtml = `<i data-lucide="info" style="color: #3b82f6; width: 18px; height: 18px;"></i>`;
   }
   dom.toast.querySelector('.toast-icon').innerHTML = iconHtml;
   dom.toastMessage.textContent = message;
