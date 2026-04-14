@@ -168,11 +168,16 @@ body::before {
   border-radius: 50%;
   background: var(--success);
   box-shadow: 0 0 8px 2px var(--success-glow);
-  animation: ledPulse 2s ease-in-out infinite;
+  animation: ledPulseGreen 2s ease-in-out infinite;
   flex-shrink: 0;
 }
 
-@keyframes ledPulse {
+@keyframes ledPulseRed {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px 2px var(--accent-glow); }
+  50% { opacity: 0.6; box-shadow: 0 0 4px 1px var(--accent-glow); }
+}
+
+@keyframes ledPulseGreen {
   0%, 100% { opacity: 1; box-shadow: 0 0 8px 2px var(--success-glow); }
   50% { opacity: 0.6; box-shadow: 0 0 4px 1px var(--success-glow); }
 }
@@ -203,21 +208,6 @@ body::before {
   letter-spacing: 0.02em;
 }
 
-.header-location {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.78rem;
-}
-
-.header-location svg {
-  color: var(--accent);
-  flex-shrink: 0;
-}
 
 /* Dark mode toggle */
 .theme-toggle {
@@ -604,13 +594,14 @@ body::before {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 8px 2px var(--accent-glow);
-  animation: ledPulse 2s ease-in-out infinite;
+  animation: ledPulseRed 2s ease-in-out infinite;
   flex-shrink: 0;
 }
 
 .hw-status-led.connected {
   background: var(--success);
   box-shadow: 0 0 8px 2px var(--success-glow);
+  animation: ledPulseGreen 2s ease-in-out infinite;
 }
 
 /* ===== Buttons (Physical Keys) ===== */
@@ -774,6 +765,25 @@ body::before {
   display: block !important;
   opacity: 0;
   pointer-events: none;
+}
+
+/* Location Status Row */
+.temp-location-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-panel);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  box-shadow: var(--shadow-recessed);
+}
+
+.temp-location-row svg {
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
 /* Leaflet overrides */
@@ -1184,11 +1194,6 @@ body::before {
 
   .header-info {
     gap: 0.5rem;
-    font-size: 0.75rem;
-  }
-
-  .header-location {
-    max-width: 150px;
     font-size: 0.75rem;
   }
 
