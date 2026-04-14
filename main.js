@@ -329,7 +329,8 @@ function onHardwareConnected() {
   state.keepaliveTimer = setInterval(() => {
     if (state.isHardwareConnected) {
       const pwmValue = Math.round((state.fanSpeedPercent / 100) * 255);
-      writeToHardware(pwmValue + '\n').catch(() => {});
+      logDebug(`[Keepalive] Triggering TX loop for PWM: ${pwmValue}`, 'info');
+      writeToHardware(pwmValue + '\\n').catch((e) => logDebug(`[Keepalive Err] ${e.message}`, 'error'));
     }
   }, 5000);
 }
@@ -338,9 +339,22 @@ function onHardwareConnected() {
 async function writeToHardware(data) {
   if (state.connectionMode === 'webusb' && state.usbDevice) {
     const encoder = new TextEncoder();
-    await state.usbDevice.transferOut(state.usbEndpointOut, encoder.encode(data));
+    const payload = encoder.encode(data);
+    try {
+      const result = await state.usbDevice.transferOut(state.usbEndpointOut, payload);
+      logDebug(`[USB TX] Payload: '${data.trim()}', Status: ${result.status}, Bytes: ${result.bytesWritten}`, 'success');
+      if (result.status === 'stall') {
+         await state.usbDevice.clearHalt('out', state.usbEndpointOut);
+      }
+    } catch (e) {
+      logDebug(`[USB TX Error] ${e.message}`, 'error');
+    }
   } else if (state.connectionMode === 'serial' && state.serialWriter) {
-    await state.serialWriter.write(data);
+    try {
+      await state.serialWriter.write(data);
+    } catch(e) {
+      logDebug(`[Serial TX Error] ${e.message}`, 'error');
+    }
   }
 }
 
