@@ -26,10 +26,16 @@ const state = {
   usbEndpoint: null,
   lastSentSpeed: -1,
   lastSerialTime: 0,
+  gpsSource: 'browser',     // 'browser' | 'mobile'
 };
 
 let mapInstance = null;
 let mapMarker = null;
+
+// Helper for debugging
+function addDebugLog(msg) {
+  console.log(`[DEBUG] ${msg}`);
+}
 
 // ===== DOM Elements =====
 const dom = {
@@ -185,6 +191,22 @@ async function connectHardware() {
   }
 }
 
+// WebUSB Handshake for CH340/Arduino (The "Secret Sauce")
+async function wakeUpCH340(device, ifaceNum) {
+  try {
+    console.log("Starting CH340 Handshake...");
+    // 1. Enable CH340
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb2b9 });
+    // 2. Set Baud Rate to 9600
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0xb202 });
+    // 3. Set DTR/RTS (The Handshake)
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x0001, index: 0x0000 });
+    console.log("Handshake Complete.");
+  } catch (e) {
+    console.warn("Handshake warning (might still work):", e);
+  }
+}
+
 // Universal WebUSB connection for mobile (CH340/FTDI/Arduino)
 async function connectViaWebUSBUniversal() {
   if (!('usb' in navigator)) {
@@ -202,19 +224,23 @@ async function connectViaWebUSBUniversal() {
         if (alt.endpoints && alt.endpoints.length) {
           ifaceNum = iface.interfaceNumber;
           await device.claimInterface(ifaceNum);
+          
+          // Perform the handshake for CH340/Nano
+          await wakeUpCH340(device, ifaceNum);
+
           for (const ep of alt.endpoints) {
             if (ep.direction === 'out') outEndpoint = ep.endpointNumber;
           }
           break;
         }
       }
+      if (ifaceNum !== null) break;
     }
     if (!outEndpoint) throw new Error('No OUT endpoint found');
     state.usbDevice = device;
     state.usbEndpoint = outEndpoint;
     state.connectionMode = 'webusb';
-    // Prime the connection by sending a dummy value twice
-    await writeToHardware('0\n');
+    // Prime the connection
     await writeToHardware('0\n');
     onHardwareConnected();
   } catch (err) {
@@ -452,116 +478,41 @@ function switchMode(mode) {
 }
 
 // ===== Location & Weather Fetch =====
-function fetchLocationTemperature() {
+async function fetchLocationTemperature() {
+  dom.headerLocation.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+      <circle cx="12" cy="10" r="3"/>
+    </svg>
+    Scanning GPS...
+  `;
+
+  // 1. Try Mobile GPS Bridge first
+  try {
+    const bridgeRes = await fetch('http://localhost:8888/gps', { signal: AbortSignal.timeout(2000) });
+    if (bridgeRes.ok) {
+        const data = await bridgeRes.json();
+        if (data.lat !== null && data.lon !== null) {
+            console.log("Using Mobile GPS from bridge:", data);
+            await updateLocationFromCoords(data.lat, data.lon, 5, 'mobile'); // Accuracy set to 5m for mobile
+            return;
+        }
+    }
+  } catch (e) {
+    console.log("Mobile GPS bridge not found or offline. Falling back to browser.");
+  }
+
+  // 2. Fallback to Browser Geolocation
   if (!navigator.geolocation) {
     showToast('Geolocation not supported', 'warning');
     switchMode('custom');
     return;
   }
 
-  dom.headerLocation.innerHTML = `
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-      <circle cx="12" cy="10" r="3"/>
-    </svg>
-    Detecting...
-  `;
-
   navigator.geolocation.getCurrentPosition(
     async (position) => {
       const { latitude, longitude, accuracy } = position.coords;
-      console.log(`Geolocation: lat=${latitude}, lon=${longitude}, accuracy=${Math.round(accuracy)}m`);
-      
-      // Store coords and update Map Iframe
-      state.lastLat = latitude;
-      state.lastLon = longitude;
-      
-      if (state.mode === 'location') {
-        dom.mapFrame.classList.remove('hidden');
-        dom.mapPlaceholder.querySelector('span').textContent = 'Location Found';
-        
-        if (!mapInstance) {
-          // Initialize Leaflet map
-          mapInstance = L.map('mapFrame', { zoomControl: false }).setView([latitude, longitude], 14);
-          
-          // Light theme OSM tiles
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-          }).addTo(mapInstance);
-          
-          // Add custom styled zoom control
-          L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
-          
-          mapMarker = L.marker([latitude, longitude]).addTo(mapInstance);
-        } else {
-          mapInstance.setView([latitude, longitude], 14);
-          mapMarker.setLatLng([latitude, longitude]);
-        }
-      }
-
-      try {
-        // Fetch weather from Open-Meteo (free, no API key)
-        const weatherUrl = `${WEATHER_BASE}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code&timezone=auto`;
-        const weatherRes = await fetch(weatherUrl);
-        if (!weatherRes.ok) throw new Error(`Weather API error: ${weatherRes.status}`);
-        const weatherData = await weatherRes.json();
-
-        const temp = Math.round(weatherData.current.temperature_2m);
-        const humidity = weatherData.current.relative_humidity_2m;
-        const weatherCode = weatherData.current.weather_code;
-        const condition = getWeatherCondition(weatherCode);
-
-        // Fetch city name from coordinates (reverse geocoding)
-        let city = `${latitude.toFixed(1)}°, ${longitude.toFixed(1)}°`;
-        try {
-          const geoUrl = `${GEOCODE_BASE}?lat=${latitude}&lon=${longitude}&format=json&accept-language=en&zoom=18`;
-          const geoRes = await fetch(geoUrl);
-          if (geoRes.ok) {
-            const geoData = await geoRes.json();
-            const addr = geoData.address || {};
-            console.log('Full address from Nominatim:', JSON.stringify(addr, null, 2));
-            // Pick name detail based on geolocation accuracy
-            if (accuracy < 5000) {
-              // Good accuracy (<5km): show road + local area + city
-              const road = addr.road || '';
-              const localArea = addr.suburb || addr.neighbourhood || addr.village || addr.city_district;
-              const cityName = addr.city || addr.town || addr.state_district || addr.county;
-              
-              const parts = [];
-              if (road) parts.push(road);
-              if (localArea && localArea !== road) parts.push(localArea);
-              if (cityName && cityName !== localArea && cityName !== road) parts.push(cityName);
-              
-              if (parts.length > 0) {
-                // Limit to 2 most specific parts + city if possible, or just first 2-3
-                city = parts.slice(0, 3).join(', ');
-              }
-            } else {
-              // Poor accuracy (IP-based): show broader area
-              city = addr.city || addr.state_district || addr.county || addr.state || city;
-            }
-          }
-        } catch (e) {
-          // Keep coordinate-based fallback
-        }
-
-        state.cityName = city;
-        dom.headerLocation.innerHTML = `
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-            <circle cx="12" cy="10" r="3"/>
-          </svg>
-          ${city}
-        `;
-
-        if (state.mode === 'location') {
-          updateTemperature(temp, humidity, condition);
-          showToast(`${temp}°C in ${city} (±${Math.round(accuracy)}m)`, 'temp');
-        }
-      } catch (err) {
-        console.error('Weather API error:', err);
-        showToast('Could not fetch weather data. Try custom mode.', 'warning');
-      }
+      await updateLocationFromCoords(latitude, longitude, accuracy, 'browser');
     },
     (err) => {
       console.error('Geolocation error:', err);
@@ -577,6 +528,89 @@ function fetchLocationTemperature() {
     },
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
+}
+
+// Internal helper to update UI with coordinates from any source
+async function updateLocationFromCoords(latitude, longitude, accuracy, source) {
+  state.gpsSource = source;
+  console.log(`Processing location (${source}): lat=${latitude}, lon=${longitude}, accuracy=${Math.round(accuracy)}m`);
+  
+  // Store coords
+  state.lastLat = latitude;
+  state.lastLon = longitude;
+  
+  // Update Map
+  if (state.mode === 'location') {
+    dom.mapFrame.classList.remove('hidden');
+    dom.mapPlaceholder.querySelector('span').textContent = 'Location Found';
+    
+    if (!mapInstance) {
+      mapInstance = L.map('mapFrame', { zoomControl: false }).setView([latitude, longitude], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapInstance);
+      L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+      mapMarker = L.marker([latitude, longitude]).addTo(mapInstance);
+    } else {
+      mapInstance.setView([latitude, longitude], 14);
+      mapMarker.setLatLng([latitude, longitude]);
+    }
+  }
+
+  try {
+    // Fetch weather from Open-Meteo
+    const weatherUrl = `${WEATHER_BASE}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code&timezone=auto`;
+    const weatherRes = await fetch(weatherUrl);
+    if (!weatherRes.ok) throw new Error(`Weather API error: ${weatherRes.status}`);
+    const weatherData = await weatherRes.json();
+
+    const temp = Math.round(weatherData.current.temperature_2m);
+    const humidity = weatherData.current.relative_humidity_2m;
+    const weatherCode = weatherData.current.weather_code;
+    const condition = getWeatherCondition(weatherCode);
+
+    // Reverse Geocoding
+    let city = `${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°`;
+    try {
+      const geoUrl = `${GEOCODE_BASE}?lat=${latitude}&lon=${longitude}&format=json&accept-language=en&zoom=18`;
+      const geoRes = await fetch(geoUrl);
+      if (geoRes.ok) {
+        const geoData = await geoRes.json();
+        const addr = geoData.address || {};
+        if (accuracy < 5000) {
+          const road = addr.road || '';
+          const localArea = addr.suburb || addr.neighbourhood || addr.village || addr.city_district;
+          const cityName = addr.city || addr.town || addr.state_district || addr.county;
+          const parts = [];
+          if (road) parts.push(road);
+          if (localArea && localArea !== road) parts.push(localArea);
+          if (cityName && cityName !== localArea && cityName !== road) parts.push(cityName);
+          if (parts.length > 0) city = parts.slice(0, 3).join(', ');
+        } else {
+          city = addr.city || addr.state_district || addr.county || addr.state || city;
+        }
+      }
+    } catch (e) {}
+
+    state.cityName = city;
+    
+    // Add a mobile icon if source is mobile
+    const sourceIcon = (source === 'mobile') 
+        ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="3" style="margin-right:4px;"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>`
+        : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+
+    dom.headerLocation.innerHTML = `${sourceIcon} ${city}`;
+
+    if (state.mode === 'location') {
+      updateTemperature(temp, humidity, condition);
+      if (source === 'mobile') {
+        showToast(`Using High Precision Mobile GPS`, 'success');
+      } else {
+        showToast(`${temp}°C in ${city}`, 'temp');
+      }
+    }
+  } catch (err) {
+    console.error('Weather API error:', err);
+    showToast('Weather fetch failed', 'warning');
+  }
 }
 
 // ===== WMO Weather Code to Condition =====
