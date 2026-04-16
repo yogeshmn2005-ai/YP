@@ -193,17 +193,31 @@ async function connectHardware() {
 
 // WebUSB Handshake for CH340/Arduino (The "Secret Sauce")
 async function wakeUpCH340(device, ifaceNum) {
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
   try {
-    console.log("Starting CH340 Handshake...");
-    // 1. Enable CH340
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0xc29c, index: 0xb2b9 });
-    // 2. Set Baud Rate to 9600
+    addDebugLog("Starting Robust CH340 Handshake...");
+    
+    // 1. Reset / Basic Init
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa1, value: 0x0000, index: 0x0000 });
+    await sleep(50);
+
+    // 2. Baud Rate Step 1 (9600)
     await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x1312, index: 0xb202 });
-    // 3. Set DTR/RTS (The Handshake)
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x0001, index: 0x0000 });
-    console.log("Handshake Complete.");
+    await sleep(50);
+
+    // 3. Baud Rate Step 2 (9600 - The "Lock")
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x9a, value: 0x0f2c, index: 0x0013 });
+    await sleep(50);
+
+    // 4. Modem Control (DTR = 1, RTS = 1)
+    // Value 0x0003 sets both DTR and RTS high (active for the chip, releasing reset for Nano)
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xa4, value: 0x0003, index: 0x0000 });
+    await sleep(50);
+
+    addDebugLog("Robust Handshake Complete.");
   } catch (e) {
-    console.warn("Handshake warning (might still work):", e);
+    addDebugLog("Handshake error: " + e);
+    console.warn("Handshake warning:", e);
   }
 }
 
