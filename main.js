@@ -12,12 +12,10 @@ const state = {
   humidity: null,
   weatherCondition: '',
   cityName: '',
-  fanSpeed: 0,            // unused legacy, kept for compat
   fanSpeedPercent: 0,     // 0-100
   tempHistory: [],        // { time, temp }
   readingCount: 0,
   startTime: Date.now(),
-  locationWatchId: null,
   serialPort: null,
   serialWriter: null,
   isHardwareConnected: false,
@@ -263,57 +261,6 @@ async function connectViaWebUSBUniversal() {
   }
 }
 
-// Mobile: WebUSB with FTDI protocol
-async function connectViaWebUSB() {
-  if (!('usb' in navigator)) {
-    showToast('Browser does not support WebUSB', 'warning');
-    return;
-  }
-
-  try {
-    const device = await navigator.usb.requestDevice({
-      filters: [
-        { vendorId: 0x0403 },  // FTDI
-        { vendorId: 0x1A86 },  // CH340
-        { vendorId: 0x2341 },  // Arduino
-        { vendorId: 0x10C4 },  // CP2102
-      ]
-    });
-
-    await device.open();
-
-    if (device.configuration === null) {
-      await device.selectConfiguration(1);
-    }
-
-    const iface = device.configuration.interfaces[0];
-    const ifaceNum = iface.interfaceNumber;
-    await device.claimInterface(ifaceNum);
-
-    let outEndpoint = null;
-    for (const ep of iface.alternate.endpoints) {
-      if (ep.direction === 'out') {
-        outEndpoint = ep.endpointNumber;
-        break;
-      }
-    }
-    if (!outEndpoint) throw new Error('No OUT endpoint found');
-
-    // FTDI initialization
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: ifaceNum + 1 });
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: ifaceNum + 1 });
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: ifaceNum + 1 });
-    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: ifaceNum + 1 });
-
-    state.usbDevice = device;
-    state.usbEndpoint = outEndpoint;
-    state.connectionMode = 'webusb';
-    onHardwareConnected();
-  } catch (err) {
-    console.error('WebUSB Error:', err);
-    showToast('Hardware connection failed', 'warning');
-  }
-}
 
 // PC: Web Serial
 async function connectViaWebSerial() {
