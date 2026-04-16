@@ -501,22 +501,7 @@ async function fetchLocationTemperature() {
     Scanning GPS...
   `;
 
-  // 1. Try Mobile GPS Bridge first
-  try {
-    const bridgeRes = await fetch('http://localhost:8888/gps', { signal: AbortSignal.timeout(2000) });
-    if (bridgeRes.ok) {
-        const data = await bridgeRes.json();
-        if (data.lat !== null && data.lon !== null) {
-            console.log("Using Mobile GPS from bridge:", data);
-            await updateLocationFromCoords(data.lat, data.lon, 5, 'mobile'); // Accuracy set to 5m for mobile
-            return;
-        }
-    }
-  } catch (e) {
-    console.log("Mobile GPS bridge not found or offline. Falling back to browser.");
-  }
-
-  // 2. Fallback to Browser Geolocation
+  // Fallback to Browser Geolocation (Direct on phone)
   if (!navigator.geolocation) {
     showToast('Geolocation not supported', 'warning');
     switchMode('custom');
