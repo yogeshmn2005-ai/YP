@@ -405,6 +405,31 @@ async function wakeUpCH340(device) {
 }
 
 /**
+ * FTDI Handshake to initialize genuine Arduino Nano boards (FT232R).
+ */
+async function wakeUpFTDI(device) {
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  try {
+    addDebugLog("Starting FTDI Handshake...");
+    // 1. Reset device
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: 0x0000 });
+    await sleep(50);
+    // 2. Set Baud Rate to 9600
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: 0x0000 });
+    await sleep(50);
+    // 3. Set Data Format (8N1)
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x04, value: 0x0008, index: 0x0000 });
+    await sleep(50);
+    // 4. Set Flow Control (None)
+    await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x02, value: 0x0000, index: 0x0000 });
+    await sleep(50);
+    addDebugLog("FTDI Handshake Complete.");
+  } catch (e) {
+    addDebugLog("FTDI Handshake failed: " + e);
+  }
+}
+
+/**
  * Establish connection via WebUSB (Optimized for Mobile OTG).
  */
 async function connectViaWebUSBUniversal() {
@@ -423,7 +448,16 @@ async function connectViaWebUSBUniversal() {
         if (alt.endpoints && alt.endpoints.length) {
           ifaceNum = iface.interfaceNumber;
           await device.claimInterface(ifaceNum);
-          await wakeUpCH340(device);
+
+          // Apply specific handshake based on the chip brand
+          if (device.vendorId === 0x1A86) {
+            await wakeUpCH340(device);
+          } else if (device.vendorId === 0x0403) {
+            await wakeUpFTDI(device);
+          } else {
+            addDebugLog("Unknown chipset, skipping handshake");
+          }
+
           for (const ep of alt.endpoints) {
             if (ep.direction === 'out') outEndpoint = ep.endpointNumber;
           }
