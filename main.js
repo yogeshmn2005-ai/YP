@@ -617,11 +617,15 @@ function runPrediction() {
       m = (n * sumXY - sumX * sumY) / denom;
   }
   
-  // Clamp the slope to realistic physical limits (max 5 degrees per minute)
-  m = Math.max(Math.min(m, 5), -5);
+  // Clamp the slope to realistic physical limits (max 0.5 degrees per minute = 30 deg/hour)
+  m = Math.max(Math.min(m, 0.5), -0.5);
   
   const b = (sumY - m * sumX) / n;
-  const predictedTemp = Math.round((m * (lastX + 60) + b) * 10) / 10;
+  let predictedTemp = Math.round((m * (lastX + 60) + b) * 10) / 10;
+  
+  // Hard sanity bounds for Earth weather (prevents extreme values in UI)
+  if (predictedTemp > 80) predictedTemp = 80;
+  if (predictedTemp < -20) predictedTemp = -20;
   
   let trendIcon = '<i data-lucide="minus"></i>';
   let trendText = 'Stable';
