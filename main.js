@@ -305,8 +305,15 @@ function updateTemperature(temp, humidity, condition) {
 
   state.readingCount++;
   dom.statReadings.textContent = state.readingCount;
-  state.tempHistory.push({ time: Date.now(), temp });
-  if (state.tempHistory.length > 30) state.tempHistory.shift();
+  
+  const now = Date.now();
+  if (state.tempHistory.length === 0 || (now - state.tempHistory[state.tempHistory.length - 1].time) > 2000) {
+    state.tempHistory.push({ time: now, temp });
+    if (state.tempHistory.length > 30) state.tempHistory.shift();
+  } else {
+    state.tempHistory[state.tempHistory.length - 1].temp = temp;
+    state.tempHistory[state.tempHistory.length - 1].time = now;
+  }
 
   calculateFanSpeed(temp, humidity);
   runPrediction();
@@ -601,11 +608,19 @@ function runPrediction() {
   for (const p of points) {
     sumX += p.x; sumY += p.y; sumXY += p.x * p.y; sumX2 += p.x * p.x;
   }
-  const denom = (n * sumX2 - sumX * sumX);
-  const m = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
-  const b = (sumY - m * sumX) / n;
-
+  let denom = (n * sumX2 - sumX * sumX);
+  
+  // Prevent catastrophic cancellation or division by extremely small numbers
+  let m = 0;
   const lastX = points[points.length - 1].x;
+  if (Math.abs(denom) > 1e-6 && lastX > 0.5) { 
+      m = (n * sumXY - sumX * sumY) / denom;
+  }
+  
+  // Clamp the slope to realistic physical limits (max 5 degrees per minute)
+  m = Math.max(Math.min(m, 5), -5);
+  
+  const b = (sumY - m * sumX) / n;
   const predictedTemp = Math.round((m * (lastX + 60) + b) * 10) / 10;
   
   let trendIcon = '<i data-lucide="minus"></i>';
