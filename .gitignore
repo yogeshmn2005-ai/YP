@@ -22,6 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+abstract/
 abstract/main.tex
 abstract/BCA_Project_Report_Format.pdf
 abstract/frontmatter.tex
@@ -37,3 +38,8 @@ abstract/chapters/chapter6.tex
 abstract/chapters/chapter7.tex
 abstract/hardware_documentation.tex
 abstract/chapters/abstract.tex
+abstract/images/Dark Theme Mode.png
+abstract/images/Main Dashboard Overview.png
+abstract/images/Physical Hardware Assembly of the SmartBreeze System.jpeg
+abstract/images/Real-time AI Forecast Charting.png
+abstract/images/Web Serial Connection Prompt.png
